@@ -38,10 +38,11 @@ namespace Util
         boost::program_options::options_description desc("Allowed options");
         desc.add_options()
 
-            ("help,h", "produce help message")                                                               // help message
-            ("version,v", "print version")                                                                   // version message
-            ("port,p", boost::program_options::value<int>(), "port to listen on")                            // port to listen on
-            ("node-ip,n", boost::program_options::value<std::string>(), "the ip of the \"canonical\" node"); // canonical node
+            ("help,h", "produce help message")                                                                      // help message
+            ("version,v", "print version")                                                                          // version message
+            ("port,p", boost::program_options::value<int>(), "port to listen on")                                   // port to listen on
+            ("listen-addr,addr", boost::program_options::value<std::string>(), "address to listen on for json-rpc") // listen addr
+            ("node-ip,n", boost::program_options::value<std::string>(), "the ip of the \"canonical\" node");        // canonical node
 
         boost::program_options::variables_map vm;
         boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc), vm);
@@ -60,11 +61,11 @@ namespace Util
             exit(0);
         }
 
-        // if (vm.count("node-ip") == 0)
-        //{
-        //     spdlog::critical("no canonical node specified, exiting");
-        //     exit(1);
-        // }
+        if (vm.count("node-ip") == 0)
+        {
+            spdlog::critical("no canonical node specified, exiting");
+            exit(1);
+        }
 
         if (vm.count("port") == 0)
         {

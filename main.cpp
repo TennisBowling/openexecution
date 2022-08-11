@@ -25,7 +25,29 @@ int main(int argc, char *argv[])
 {
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%^%l%$] - %v"); // nice style that i like
 
-    cpr::Url url{"http://192.168.86.109"};
+    int port;
+
+    if (vm.count("port") == 0)
+    {
+        port = 8000;
+    }
+    else
+    {
+        port = vm["port"].as<int>();
+    }
+
+    std::string listenaddr;
+
+    if (vm.count("listen-addr") == 0)
+    {
+        listenaddr = std::string("0.0.0.0");
+    }
+    else
+    {
+        listenaddr = vm["listen-addr"].as<std::string>();
+    }
+
+    cpr::Url url{vm["node-ip"].as<std::string>()};
 
     // setup leveldb
     leveldb::Options options;
@@ -102,54 +124,55 @@ int main(int argc, char *argv[])
 
     // here we have to get the clients request from the database and send it to the node
     CROW_ROUTE(app, "/")
-    ([](const crow::request &req) {
-        crow::response res;
-        res.add_header("Content-Type", "application/json");
-        json j = json::parse(req.body);
-        if (json["method"].get<std::string>() == "engine_forkchoiceUpdatedV1")
-        {
-            std::string headblockhash = json["params"][0]["headBlockHash"].get<std::string>();
-            std::string response;
-            leveldb::status s = db->Get(leveldb::ReadOptions(), headblockhash, &response); // get the response from the database
-            if (s.ok())
-            {
-                res.body = response;
-                res.code = 200;
-                return res;
-            }
-            else
-            {
-                spdlog::error("Failed to get block {}: {}", headblockhash, s.ToString());
-                res.body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}";
-                res.code = 200;
-                return res;
-            }
-        }
-        else if (json["method"].get<std::string>() == "engine_exchangeTransitionConfigurationV1")
-        {
-            std::string exchangeconfig;
-            leveldb::status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
-            if (s.ok())
-            {
-                res.body = exchangeconfig;
-                res.code = 200;
-                return res;
-            }
-            else
-            {
-                spdlog::error("Failed to get exchangeconfig: {}", s.ToString());
-                res.body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}";
-                res.code = 200;
-                return res;
-            }
-        }
-        else
-        {
-            spdlog::error("method {} not supported yet.", json["method"].get<std::string>());
-            return "";
-        }
+    ([](const crow::request &req)
+     {
+         crow::response res;
+         res.add_header("Content-Type", "application/json");
+         json j = json::parse(req.body);
+         if (json["method"].get<std::string>() == "engine_forkchoiceUpdatedV1")
+         {
+             std::string headblockhash = json["params"][0]["headBlockHash"].get<std::string>();
+             std::string response;
+             leveldb::status s = db->Get(leveldb::ReadOptions(), headblockhash, &response); // get the response from the database
+             if (s.ok())
+             {
+                 res.body = response;
+                 res.code = 200;
+                 return res;
+             }
+             else
+             {
+                 spdlog::error("Failed to get block {}: {}", headblockhash, s.ToString());
+                 res.body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}";
+                 res.code = 200;
+                 return res;
+             }
+         }
+         else if (json["method"].get<std::string>() == "engine_exchangeTransitionConfigurationV1")
+         {
+             std::string exchangeconfig;
+             leveldb::status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
+             if (s.ok())
+             {
+                 res.body = exchangeconfig;
+                 res.code = 200;
+                 return res;
+             }
+             else
+             {
+                 spdlog::error("Failed to get exchangeconfig: {}", s.ToString());
+                 res.body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}";
+                 res.code = 200;
+                 return res;
+             }
+         }
+         else
+         {
+             spdlog::error("method {} not supported yet.", json["method"].get<std::string>());
+             return "";
+         } });
 
-        );
+    app.port(port).address(listenaddr).multithreaded().run();
 
-        delete db;
+    delete db;
 }
