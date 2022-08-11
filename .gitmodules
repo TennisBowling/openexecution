@@ -1,3 +1,6 @@
 [submodule "boost-cmake"]
 	path = boost-cmake
 	url = https://github.com/ClausKlein/boost-cmake.git
+[submodule "crow"]
+	path = crow
+	url = https://github.com/tennisbowling/crow.git
