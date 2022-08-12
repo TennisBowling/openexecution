@@ -77,8 +77,9 @@ int main(int argc, char *argv[])
 
     // route for the canonical CL
     CROW_ROUTE(app, "/canonical")
-    ([&node](const crow::request &req)
+    ([&node, &db](const crow::request &req)
      {
+        crow::response res;
         json j = json::parse(req.body);
         if (j["method"].get<std::string>() == "engine_forkchoiceUpdatedV1")
         {
@@ -95,10 +96,16 @@ int main(int argc, char *argv[])
             if (r.status_code == 200)
             {
                 leveldb::Status s = db->Put(leveldb::WriteOptions(), headblockhash, r.text); // store the response in the database to later be used by the client CLs
+                res.code = r.status_code;
+                res.body = r.text;
+                return res;
             }
             else
             {
                 spdlog::error("Failed to get block {}: {}", headblockhash, r.text);
+                res.code = r.status_code;
+                res.body = r.text;
+                return res;
             }
         }
         else if (j["method"].get<std::string>() == "engine_exchangeTransitionConfigurationV1")
@@ -119,6 +126,23 @@ int main(int argc, char *argv[])
                 batch.Delete("exchangeconfig");                 // delete the old exchangeconfig from the database
                 batch.Put("exchangeconfig", r.text);            // put the new exchangeconfig in the database
                 s = db->Write(leveldb::WriteOptions(), &batch); // write the batch to the database
+            }
+            else
+            {
+                s = db->Put(leveldb::WriteOptions(), "exchangeconfig", r.text); // put the new exchangeconfig in the database
+            }
+            if (s.ok())
+            {
+                res.code = r.status_code;
+                res.body = r.text;
+                return res;
+            }
+            else
+            {
+                spdlog::error("Failed to write exchangeconfig: {}", s.ToString());
+                res.code = r.status_code;
+                res.body = r.text;
+                return res;
             }
         } });
 
