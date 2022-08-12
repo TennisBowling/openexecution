@@ -52,6 +52,7 @@ int main(int argc, char *argv[])
     }
 
     std::string node = vm["node-ip"].as<std::string>();
+    cpr::Url url{node};
 
     // setup leveldb
     leveldb::Options options;
@@ -91,7 +92,7 @@ int main(int argc, char *argv[])
                 headers[header.first] = header.second; // extract all headers from the incoming request
             }
 
-            cpr::Response r = cpr::Post(cpr::Url{node}, cpr::Body{req.body}, headers); // send the request to the node
+            cpr::Response r = cpr::Post(node, cpr::Body{req.body}, headers); // send the request to the node
 
             if (r.status_code == 200)
             {
@@ -116,7 +117,7 @@ int main(int argc, char *argv[])
                 headers[header.first] = header.second; // extract all headers from the incoming request
             }
 
-            cpr::Response r = cpr::Post(cpr::Url{node}, cpr::Body{req.body}, headers); // send the request to the node
+            cpr::Response r = cpr::Post(node, cpr::Body{req.body}, headers); // send the request to the node
 
             std::string exchangeconfig;
             leveldb::Status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
