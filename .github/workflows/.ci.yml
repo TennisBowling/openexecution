@@ -46,6 +46,11 @@ jobs:
     - uses: actions/checkout@v2
       with:
         submodules: true
+      
+    - name: checkout sub-submodules
+      shell: bash
+      run: |
+        git submodule update --init --recursive
 
     - name: Download OpenSSL
       shell: bash
