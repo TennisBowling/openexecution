@@ -4,3 +4,6 @@
 [submodule "crow"]
 	path = crow
 	url = https://github.com/tennisbowling/crow.git
+[submodule "leveldb"]
+	path = leveldb
+	url = https://github.com/google/leveldb.git

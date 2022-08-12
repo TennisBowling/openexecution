@@ -42,8 +42,7 @@ target_link_libraries(openexecution PRIVATE Crow::Crow)
 
 set(LEVELDB_BUILD_TESTS OFF)
 set(LEVELDB_BUILD_BENCHMARKS OFF)
-FetchContent_Declare(leveldb GIT_REPOSITORY https://github.com/google/leveldb.git GIT_BRANCH master)
-FetchContent_MakeAvailable(leveldb)
+add_subdirectory(leveldb)
 target_link_libraries(openexecution PRIVATE leveldb)
 
 FetchContent_Declare(cpr GIT_REPOSITORY https://github.com/libcpr/cpr.git

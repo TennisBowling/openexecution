@@ -3,12 +3,15 @@
 #include <nlohmann/json.hpp>
 #include <leveldb/db.h>
 #include <leveldb/cache.h>
+#include <leveldb/write_batch.h>
 #include <boost/asio/thread_pool.hpp>
 #include <boost/asio/post.hpp>
+#include <crow.h>
+#include "util.hpp"
 #include <string>
 #include <iostream>
 #include <thread>
-#include <signal.h>
+#include <csignal>
 using json = nlohmann::json;
 
 leveldb::DB *db;
@@ -25,6 +28,7 @@ int main(int argc, char *argv[])
 {
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%^%l%$] - %v"); // nice style that i like
 
+    auto vm = parse_args(argc, argv);
     int port;
 
     if (vm.count("port") == 0)
@@ -66,24 +70,20 @@ int main(int argc, char *argv[])
                       { spdlog::info("Starting threadpool with {} threads", std::thread::hardware_concurrency()); });
 
     // setup signal handler
-    struct sigaction sigIntHandler;
-    sigIntHandler.sa_handler = signal_handler;
-    sigemptyset(&sigIntHandler.sa_mask);
-    sigIntHandler.sa_flags = 0;
-    sigaction(SIGINT, &sigIntHandler, NULL);
+    signal(SIGINT, signal_handler);
 
     // setup crow
     crow::SimpleApp app;
 
     // route for the canonical CL
     CROW_ROUTE(app, "/canonical")
-    ([](const crow::request &req)
+    ([&url](const crow::request &req)
      {
         json j = json::parse(req.body);
-        if (json["method"].get<std::string>() == "engine_forkchoiceUpdatedV1")
+        if (j["method"].get<std::string>() == "engine_forkchoiceUpdatedV1")
         {
 
-            std::string headblockhash = json["params"][0]["headBlockHash"].get<std::string>();
+            std::string headblockhash = j["params"][0]["headBlockHash"].get<std::string>();
             cpr::Header headers;
             for (auto &header : req.headers)
             {
@@ -94,14 +94,14 @@ int main(int argc, char *argv[])
 
             if (r.status_code == 200)
             {
-                leveldb::status s = db->Put(leveldb::WriteOptions(), headblockhash, r.text); // store the response in the database to later be used by the client CLs
+                leveldb::Status s = db->Put(leveldb::WriteOptions(), headblockhash, r.text); // store the response in the database to later be used by the client CLs
             }
             else
             {
                 spdlog::error("Failed to get block {}: {}", headblockhash, r.text);
             }
         }
-        else if (json["method"].get<std::string>() == "engine_exchangeTransitionConfigurationV1")
+        else if (j["method"].get<std::string>() == "engine_exchangeTransitionConfigurationV1")
         {
             cpr::Header headers;
             for (auto &header : req.headers)
@@ -112,7 +112,7 @@ int main(int argc, char *argv[])
             cpr::Response r = cpr::Post(url, cpr::Body{req.body}, headers); // send the request to the node
 
             std::string exchangeconfig;
-            leveldb::status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
+            leveldb::Status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
             if (s.ok())
             {
                 leveldb::WriteBatch batch;
@@ -129,11 +129,11 @@ int main(int argc, char *argv[])
          crow::response res;
          res.add_header("Content-Type", "application/json");
          json j = json::parse(req.body);
-         if (json["method"].get<std::string>() == "engine_forkchoiceUpdatedV1")
+         if (j["method"].get<std::string>() == "engine_forkchoiceUpdatedV1")
          {
-             std::string headblockhash = json["params"][0]["headBlockHash"].get<std::string>();
+             std::string headblockhash = j["params"][0]["headBlockHash"].get<std::string>();
              std::string response;
-             leveldb::status s = db->Get(leveldb::ReadOptions(), headblockhash, &response); // get the response from the database
+             leveldb::Status s = db->Get(leveldb::ReadOptions(), headblockhash, &response); // get the response from the database
              if (s.ok())
              {
                  res.body = response;
@@ -148,10 +148,10 @@ int main(int argc, char *argv[])
                  return res;
              }
          }
-         else if (json["method"].get<std::string>() == "engine_exchangeTransitionConfigurationV1")
+         else if (j["method"].get<std::string>() == "engine_exchangeTransitionConfigurationV1")
          {
              std::string exchangeconfig;
-             leveldb::status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
+             leveldb::Status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
              if (s.ok())
              {
                  res.body = exchangeconfig;
@@ -168,11 +168,13 @@ int main(int argc, char *argv[])
          }
          else
          {
-             spdlog::error("method {} not supported yet.", json["method"].get<std::string>());
-             return "";
+             spdlog::error("method {} not supported yet.", j["method"].get<std::string>());
+             res.code = 200;
+             res.body = "{\"error\" :\"method not supported yet.\"}";
+             return res;
          } });
 
-    app.port(port).address(listenaddr).multithreaded().run();
+    app.port(port).bindaddr(listenaddr).multithreaded().run();
 
     delete db;
 }
