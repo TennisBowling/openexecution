@@ -10,6 +10,30 @@
 #include <boost/config.hpp>
 #include <spdlog/spdlog.h>
 
+std::string read_jwt(const std::string &filepath)
+{
+    std::ifstream filestream(filepath);
+
+    if (filestream.is_open())
+    {
+        std::string jwt;
+        filestream >> jwt;
+
+        if (!jwt.starts_with("0x"))
+        {
+            spdlog::critical("JWT token is not properly formatted");
+        }
+
+        jwt.erase(0, 2); // remove the "0x" prefix
+        return jwt;
+    }
+    else
+    {
+        spdlog::error("Unable to open file {} for the JWT secret.", filepath);
+        exit(1);
+    }
+}
+
 boost::program_options::variables_map parse_args(int argc, char *argv[])
 {
     boost::program_options::options_description desc("Allowed options");

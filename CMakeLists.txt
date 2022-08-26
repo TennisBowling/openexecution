@@ -21,19 +21,33 @@ if(ENABLE_LTO)
     endif()
 endif()
 
+set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+enable_language(Rust)
+include(CMakeCargo)
+
 add_executable(openexecution main.cpp)
 option(BUILD_SHARED_LIBS "build libraries shared" OFF)
 option(CURL_ZLIB "use curl with zlib" OFF)
 
-# set(CPACK_PROJECT_NAME ${PROJECT_NAME})
-# set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
-# include(CPack)
+set(CPACK_PROJECT_NAME ${PROJECT_NAME})
+set(CPACK_PROJECT_VERSION ${PROJECT_VERSION})
+include(CPack)
+
 add_subdirectory(boost-cmake)
 target_link_libraries(openexecution PUBLIC Boost::boost)
 target_link_libraries(openexecution PUBLIC Boost::program_options)
 
-include(FetchContent)
+add_subdirectory(rust_jwt)
 
+if(WIN32)
+    target_link_libraries(openexecution PRIVATE rust_jwt ws2_32 userenv)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+    target_link_libraries(openexecution PRIVATE rust_jwt resolv)
+else()
+    target_link_libraries(openexecution PRIVATE rust_jwt pthread dl m)
+endif()
+
+include(FetchContent)
 set(CROW_BUILD_EXAMPLES OFF)
 set(CROW_BUILD_TESTS OFF)
 set(CROW_INSTALL OFF)
