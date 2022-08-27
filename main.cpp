@@ -38,10 +38,10 @@ int main(int argc, char *argv[])
 {
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%^%l%$] - %v"); // nice style that i like
 
-    // auto vm = parse_args(argc, argv);
-    // int port;
+    auto vm = parse_args(argc, argv);
+    int port;
 
-    /*if (vm.count("port") == 0)
+    if (vm.count("port") == 0)
     {
         port = 8000;
     }
@@ -61,15 +61,10 @@ int main(int argc, char *argv[])
         listenaddr = vm["listen-addr"].as<std::string>();
     }
 
-    cpr::Url node{vm["node-ip"].as<std::string>()};*/
+    cpr::Url node{vm["node"].as<std::string>()};
+    cpr::Url unauth_node{vm["unauth-node"].as<std::string>()};
 
-    // auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
-    auto jwt = read_jwt("C:\\Users\\FASTS\\OneDrive\\Documents\\github\\executionbackup\\jwt.txt");
-
-    cpr::Url unauth_node{"http://192.168.86.109:9991"};
-    int port = 8000;
-    std::string listenaddr("0.0.0.0");
-    cpr::Url node("http://192.168.86.109:9992");
+    auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
 
     // setup leveldb
     leveldb::Options options;
@@ -270,12 +265,12 @@ int main(int argc, char *argv[])
                 else
                 {
                     spdlog::error("Failed to get exchangeconfig: {}", s.ToString());
-                    res.body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}";
+                    res.body = "{\"error\":{\"code\":-32000,\"message\":\"Failed to get exchangeconfig\"}}";
                     res.code = 200;
                     return res;
                 }
             }
-            else if (j["method"] == "engine_getPayloadV1")
+            else if (j["method"] == "engine_getPayloadV1" || j["method"] == "engine_newPayloadV1")  // both of these are safe to pass to the EE
             {
                 // we can just forward this request to the node
                 cpr::Header headers;
@@ -293,7 +288,7 @@ int main(int argc, char *argv[])
             {
                 spdlog::error("method {} not supported yet.", j["method"]);
                 res.code = 200;
-                res.body = "{\"error\" :\"method not supported yet.\"}";
+                res.body = "{\"error\":{\"code\":-32000,\"message\":\"method not supported yet\"}}";
                 return res;
             }   
         }

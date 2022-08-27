@@ -43,7 +43,8 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
         ("version,v", "print version")                                                                          // version message
         ("port,p", boost::program_options::value<int>(), "port to listen on")                                   // port to listen on
         ("listen-addr,addr", boost::program_options::value<std::string>(), "address to listen on for json-rpc") // listen addr
-        ("node-ip,n", boost::program_options::value<std::string>(), "the ip of the \"canonical\" node");        // canonical node
+        ("jwt-secret,jwt", boost::program_options::value<std::string>(), "filepath for the jwt secret")         // jwt-secret
+        ("node,n", boost::program_options::value<std::string>(), "the ip of the \"canonical\" node");        // canonical node
 
     boost::program_options::variables_map vm;
     boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc), vm);
@@ -65,6 +66,12 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
     if (vm.count("node-ip") == 0)
     {
         spdlog::critical("no canonical node specified, exiting");
+        exit(1);
+    }
+
+    if (vm.count("jwt-secret") == 0)
+    {
+        spdlog::critical("no jwt secret specified, exiting");
         exit(1);
     }
 
