@@ -39,12 +39,12 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
     boost::program_options::options_description desc("Allowed options");
     desc.add_options()
 
-        ("help,h", "produce help message")                                                                      // help message
-        ("version,v", "print version")                                                                          // version message
-        ("port,p", boost::program_options::value<int>(), "port to listen on")                                   // port to listen on
-        ("listen-addr,addr", boost::program_options::value<std::string>(), "address to listen on for json-rpc") // listen addr
-        ("jwt-secret,jwt", boost::program_options::value<std::string>(), "filepath for the jwt secret")         // jwt-secret
-        ("node,n", boost::program_options::value<std::string>(), "the ip of the \"canonical\" node");        // canonical node
+        ("help,h", "produce help message")                                                                                                                                                                                          // help message
+        ("version,v", "print version")                                                                                                                                                                                              // version message
+        ("port,p", boost::program_options::value<int>(), "port to listen on")                                                                                                                                                       // port to listen on
+        ("listen-addr,addr", boost::program_options::value<std::string>(), "address to listen on for json-rpc")                                                                                                                     // listen addr
+        ("jwt-secret,jwt", boost::program_options::value<std::string>(), "filepath for the jwt secret")                                                                                                                             // jwt-secret
+        ("unauth-node, un", boost::program_options::value<std::string>(), "unauthenticated node url (could be something like infura)")("node,n", boost::program_options::value<std::string>(), "the ip of the \"canonical\" node"); // canonical node
 
     boost::program_options::variables_map vm;
     boost::program_options::store(boost::program_options::parse_command_line(argc, argv, desc), vm);
@@ -63,9 +63,15 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
         exit(0);
     }
 
-    if (vm.count("node-ip") == 0)
+    if (vm.count("node") == 0)
     {
         spdlog::critical("no canonical node specified, exiting");
+        exit(1);
+    }
+
+    if (vm.count("unauth-node") == 0)
+    {
+        spdlog::critical("no unauthenticated node specified, exiting");
         exit(1);
     }
 
