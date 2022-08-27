@@ -133,7 +133,7 @@ int main(int argc, char *argv[])
                 }
                 else
                 {
-                    spdlog::error("Failed to get block {}: {}", headblockhash, r.text);
+                    spdlog::error("Failed to make request: {}", r.error.message);
                     res.code = r.status_code;
                     res.body = r.text;
                     return res;
@@ -232,6 +232,7 @@ int main(int argc, char *argv[])
                         {
                             headers[header.first] = header.second; // extract all headers from the incoming request
                         }
+                        headers.erase("Authorization");
                         cpr::Response r = cpr::Post(node, cpr::Body{j.dump()}, headers, create_bearer_jwt(jwt));
                         res.code = r.status_code;
                         res.body = r.text;
@@ -273,6 +274,20 @@ int main(int argc, char *argv[])
                     res.code = 200;
                     return res;
                 }
+            }
+            else if (j["method"] == "engine_getPayloadV1")
+            {
+                // we can just forward this request to the node
+                cpr::Header headers;
+                for (auto &header : req.headers)
+                {
+                    headers[header.first] = header.second; // extract all headers from the incoming request
+                }
+                headers.erase("Authorization");
+                cpr::Response r = cpr::Post(node, cpr::Body{j.dump()}, headers, create_bearer_jwt(jwt));
+                res.code = r.status_code;
+                res.body = r.text;
+                return res;
             }
             else
             {
