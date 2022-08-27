@@ -82,14 +82,15 @@ int main(int argc, char *argv[])
     boost::asio::post(pool, [&]()
                       { spdlog::info("Starting threadpool with {} threads", std::thread::hardware_concurrency()); });
 
+    // setup crow
+    crow::SimpleApp app;
+
     // setup signal handler
+    app.signal_clear();
     signal(SIGINT, signal_handler);
 
     // last legitamate fcU (request by CL)
     std::string last_legitimate_fcu;
-
-    // setup crow
-    crow::SimpleApp app;
 
     // route for the canonical CL
     CROW_ROUTE(app, "/canonical").methods(crow::HTTPMethod::Post)([&node, &unauth_node, &last_legitimate_fcu](const crow::request &req)
