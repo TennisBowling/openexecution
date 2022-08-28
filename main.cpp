@@ -40,7 +40,7 @@ int main(int argc, char *argv[])
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%^%l%$] - %v"); // nice style that i like
 
     auto vm = parse_args(argc, argv);
-    int port;
+    /*int port;
 
     if (vm.count("port") == 0)
     {
@@ -65,7 +65,12 @@ int main(int argc, char *argv[])
     cpr::Url node{vm["node"].as<std::string>()};
     cpr::Url unauth_node{vm["unauth-node"].as<std::string>()};
 
-    auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
+    auto jwt = read_jwt(vm["jwt-secret"].as<std::string>()); */
+    int port = 8899;
+    std::string listenaddr = "0.0.0.0";
+    cpr::Url node{"http://192.168.86.109:8551"};
+    cpr::Url unauth_node{"http://192.168.86.109:8545"};
+    auto jwt = read_jwt("C:\\Users\\FASTS\\OneDrive\\Documents\\github\\executionbackup\\jwt.txt");
 
     // setup leveldb
     leveldb::Options options;
@@ -121,7 +126,8 @@ int main(int argc, char *argv[])
                 {
                     headers[header.first] = header.second; // extract all headers from the incoming request
                 }
-                
+                headers.erase("Accept-Encoding");
+                headers.emplace("Accept-Encoding", "identity");
                 cpr::Response r = cpr::Post(node, cpr::Body{req.body}, headers); // send the request to the node
 
                 if (r.status_code == 200)
@@ -146,7 +152,8 @@ int main(int argc, char *argv[])
                 {
                     headers[header.first] = header.second; // extract all headers from the incoming request
                 }
-
+                headers.erase("Accept-Encoding");
+                headers.emplace("Accept-Encoding", "identity");
                 cpr::Response r = cpr::Post(node, cpr::Body{req.body}, headers); // send the request to the node
 
                 std::string exchangeconfig;
@@ -183,7 +190,8 @@ int main(int argc, char *argv[])
                 {
                     headers[header.first] = header.second; // extract all headers from the incoming request
                 }
-
+                headers.erase("Accept-Encoding");
+                headers.emplace("Accept-Encoding", "identity");
                 cpr::Response r = cpr::Post(node, cpr::Body{req.body}, headers); // send the request to the node
 
                 res.code = r.status_code;
@@ -200,6 +208,8 @@ int main(int argc, char *argv[])
             {
                 headers[header.first] = header.second; // extract all headers from the incoming request
             }
+            headers.erase("Accept-Encoding");
+            headers.emplace("Accept-Encoding", "identity");
             cpr::Response r = cpr::Post(unauth_node, cpr::Body{req.body}, headers);
             res.code = r.status_code;
             res.body = r.text;
@@ -233,6 +243,8 @@ int main(int argc, char *argv[])
                             headers[header.first] = header.second; // extract all headers from the incoming request
                         }
                         headers.erase("Authorization");
+                        headers.erase("Accept-Encoding");
+                        headers.emplace("Accept-Encoding", "identity");
                         cpr::Response r = cpr::Post(node, cpr::Body{j.dump()}, headers, create_bearer_jwt(jwt));
                         res.code = r.status_code;
                         res.body = r.text;
@@ -284,6 +296,8 @@ int main(int argc, char *argv[])
                     headers[header.first] = header.second; // extract all headers from the incoming request
                 }
                 headers.erase("Authorization");
+                headers.erase("Accept-Encoding");
+                headers.emplace("Accept-Encoding", "identity");
                 cpr::Response r = cpr::Post(node, cpr::Body{j.dump()}, headers, create_bearer_jwt(jwt));
                 res.code = r.status_code;
                 res.body = r.text;
@@ -305,6 +319,8 @@ int main(int argc, char *argv[])
             {
                 headers[header.first] = header.second; // extract all headers from the incoming request
             }
+            headers.erase("Accept-Encoding");
+            headers.emplace("Accept-Encoding", "identity");
             cpr::Response r = cpr::Post(unauth_node, cpr::Body{req.body}, headers);
             res.code = r.status_code;
             res.body = r.text;

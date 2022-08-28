@@ -62,7 +62,7 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
         std::cout << "Compiled with " << BOOST_COMPILER << std::endl;
         exit(0);
     }
-
+    /*
     if (vm.count("node") == 0)
     {
         spdlog::critical("no canonical node specified, exiting");
@@ -79,7 +79,7 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
     {
         spdlog::critical("no jwt secret specified, exiting");
         exit(1);
-    }
+    } */
 
     if (vm.count("port") == 0)
     {
