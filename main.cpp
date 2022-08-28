@@ -8,6 +8,7 @@
 #include <boost/asio/post.hpp>
 #include <crow.h>
 #include "util.hpp"
+#include "crow_log.hpp"
 #include "rust_jwt/rust_jwt.hpp"
 #include <string>
 #include <iostream>
@@ -83,7 +84,10 @@ int main(int argc, char *argv[])
                       { spdlog::info("Starting threadpool with {} threads", std::thread::hardware_concurrency()); });
 
     // setup crow
+    SpdLogAdapter adapter; // from crow_log.hpp
+    crow::logger::setHandler(&adapter);
     crow::SimpleApp app;
+    app.loglevel(crow::LogLevel::Warning);
 
     // setup signal handler
     app.signal_clear();
