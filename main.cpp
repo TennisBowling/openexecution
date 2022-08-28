@@ -40,7 +40,7 @@ int main(int argc, char *argv[])
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%^%l%$] - %v"); // nice style that i like
 
     auto vm = parse_args(argc, argv);
-    /*int port;
+    int port;
 
     if (vm.count("port") == 0)
     {
@@ -65,12 +65,7 @@ int main(int argc, char *argv[])
     cpr::Url node{vm["node"].as<std::string>()};
     cpr::Url unauth_node{vm["unauth-node"].as<std::string>()};
 
-    auto jwt = read_jwt(vm["jwt-secret"].as<std::string>()); */
-    int port = 8899;
-    std::string listenaddr = "0.0.0.0";
-    cpr::Url node{"http://192.168.86.109:8551"};
-    cpr::Url unauth_node{"http://192.168.86.109:8545"};
-    auto jwt = read_jwt("C:\\Users\\FASTS\\OneDrive\\Documents\\github\\executionbackup\\jwt.txt");
+    auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
 
     // setup leveldb
     leveldb::Options options;
