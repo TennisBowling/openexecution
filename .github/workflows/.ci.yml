@@ -219,11 +219,6 @@ jobs:
         path: ./build/openexecution*.*
         name: ${{ matrix.config.artifact }}
     
-    - name: Upload Changelog
-      uses: actions/upload-artifact@v2
-      with:
-        path: ./changelog.txt
-        name: changelog.txt
 
   release:
     if: contains(github.ref, 'tags/v')
@@ -231,22 +226,6 @@ jobs:
     needs: build
 
     steps:
-
-    - name: Download Changelog Artifact
-      uses: actions/download-artifact@v2
-      with:
-        name: changelog.txt
-        path: ./
-
-    - name: Read Changelog and Assign to Variable
-      id: read_changelog
-      run: |
-        input_file="changelog.txt"
-        while read line
-        do
-          file_text=$line
-        done < "$input_file"
-        echo ::set-output name=changelog::$file_text
 
     - name: Create Release
       id: create_release
@@ -256,7 +235,6 @@ jobs:
       with:
         tag_name: ${{ github.ref }}
         release_name: Release ${{ github.ref }}
-        body: ${{ steps.read_changelog.outputs.changelog }}
         draft: false
         prerelease: false
 
