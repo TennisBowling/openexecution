@@ -15,6 +15,7 @@
 #include <thread>
 #include <chrono>
 #include <csignal>
+#include <random>
 using json = nlohmann::json;
 
 leveldb::DB *db;
@@ -35,13 +36,32 @@ cpr::Bearer create_bearer_jwt(std::string &token)
     return cpr::Bearer{jwt};
 }
 
+// we let the operator of this program decide if they want to override the client's fee recipient address to their own
+std::string make_fee_recipient(std::string originaladdress, double &chance, std::string &overrideaddress)
+{
+    // chance is a decimal representing the chance that the fee recipient will be overridden
+    // 0.5 means 50% chance, 0.1 means 10% chance, etc.
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<> dis(0, 1);
+    double random = dis(gen);
+    if (random < chance)
+    {
+        return overrideaddress;
+    }
+    else
+    {
+        return originaladdress;
+    }
+}
+
 int main(int argc, char *argv[])
 {
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%^%l%$] - %v"); // nice style that i like
 
     auto vm = parse_args(argc, argv);
-    int port;
 
+    int port;
     if (vm.count("port") == 0)
     {
         port = 8000;
@@ -52,7 +72,6 @@ int main(int argc, char *argv[])
     }
 
     std::string listenaddr;
-
     if (vm.count("listen-addr") == 0)
     {
         listenaddr = std::string("0.0.0.0");
@@ -60,6 +79,28 @@ int main(int argc, char *argv[])
     else
     {
         listenaddr = vm["listen-addr"].as<std::string>();
+    }
+
+    double fee_override_chance;
+    if (vm.count("fee-override-chance") == 0)
+    {
+        fee_override_chance = 0.0;
+    }
+    else
+    {
+        fee_override_chance = vm["fee-override-chance"].as<double>();
+        spdlog::info("Fee override chance set to {}.", fee_override_chance);
+    }
+
+    std::string fee_override_address;
+    if (vm.count("fee-override-address") == 0)
+    {
+        fee_override_address = std::string("");
+    }
+    else
+    {
+        fee_override_address = vm["fee-override-address"].as<std::string>();
+        spdlog::info("Fee override address: {}", fee_override_address);
     }
 
     cpr::Url node{vm["node"].as<std::string>()};
@@ -92,6 +133,7 @@ int main(int argc, char *argv[])
     // setup signal handler
     app.signal_clear();
     signal(SIGINT, signal_handler);
+    spdlog::debug("Signal handler set.");
 
     // last legitamate fcU (request by CL)
     std::string last_legitimate_fcu;
@@ -103,6 +145,7 @@ int main(int argc, char *argv[])
         json j = json::parse(req.body);
         if (j["method"].get<std::string>().starts_with("engine_"))
         {
+            spdlog::debug("engine_ method called by canonical CL");
             if (j["method"] == "engine_forkchoiceUpdatedV1")
             {
                 if (j["params"][1]["payloadAttributes"] != std::nullptr_t())
@@ -128,6 +171,7 @@ int main(int argc, char *argv[])
                 if (r.status_code == 200)
                 {
                     leveldb::Status s = db->Put(leveldb::WriteOptions(), headblockhash, r.text); // store the response in the database to later be used by the client CLs
+                    spdlog::trace("put response in database, status {}", s.ToString());
                     res.code = r.status_code;
                     res.body = r.text;
                     return res;
@@ -159,10 +203,12 @@ int main(int argc, char *argv[])
                     batch.Delete("exchangeconfig");                 // delete the old exchangeconfig from the database
                     batch.Put("exchangeconfig", r.text);            // put the new exchangeconfig in the database
                     s = db->Write(leveldb::WriteOptions(), &batch); // write the batch to the database
+                    spdlog::trace("overwrote exchangeconfig to database, status {}", s.ToString());
                 }
                 else
                 {
                     s = db->Put(leveldb::WriteOptions(), "exchangeconfig", r.text); // put the new exchangeconfig in the database
+                    spdlog::trace("wrote new exchangeconfig to database, status {}", s.ToString());
                 }
                 if (s.ok())
                 {
@@ -198,6 +244,7 @@ int main(int argc, char *argv[])
         else
         {
            // must be a normal request, just forward it to the unauth node
+           spdlog::debug("normal request called by canonical CL");
             cpr::Header headers;
             for (auto &header : req.headers)
             {
@@ -212,7 +259,7 @@ int main(int argc, char *argv[])
         } });
 
     // here we have to get the clients request from the database and send it to the node
-    CROW_ROUTE(app, "/").methods(crow::HTTPMethod::Post)([&node, &unauth_node, &last_legitimate_fcu, &jwt](const crow::request &req)
+    CROW_ROUTE(app, "/").methods(crow::HTTPMethod::Post)([&node, &unauth_node, &last_legitimate_fcu, &jwt, &fee_override_chance, &fee_override_address](const crow::request &req)
                                                          {
         crow::response res;
         res.add_header("Content-Type", "application/json");
@@ -222,16 +269,31 @@ int main(int argc, char *argv[])
         {
             if (j["method"] == "engine_forkchoiceUpdatedV1")
             {
+                spdlog::trace("engine_forkchoiceUpdated called by client CL");
                 if (j["params"][1]["payloadAttributes"] != std::nullptr_t())
                 {
+                    spdlog::trace("client CL sent a fcU with payloadAttributes, wants to build a block");
                     // temp remove payloadAttributes, check if it's then equal to the last legitamate fcU
-                    std::string temppayloadAttributes = j["params"][1]["payloadAttributes"].get<std::string>();
+                    json temppayloadAttributes = json::parse(j["params"][1]["payloadAttributes"].get<std::string>());
                     j.erase("payloadAttributes");
                     if (j.dump() == last_legitimate_fcu)
                     {
                         // now we can add the payloadAttributes back, and since the fcU points to the same head block as the
                         // canonical CL's "last legitamate fcU", we can just forward it to the node plus the payloadAttributes
+                        std::string fee_recipient = make_fee_recipient(temppayloadAttributes["suggestedFeeRecipient"].get<std::string>(), fee_override_chance, fee_override_address);
+                        
+                        if (fee_recipient != fee_override_address)
+                        {
+                            spdlog::info("Using client's fee recipient of {}", fee_recipient);
+                        }
+                        else
+                        {
+                            spdlog::info("Using our override fee recipient instead of {}", fee_recipient);
+                        }
+                        
+                        temppayloadAttributes["suggestedFeeRecipient"] = fee_recipient;
                         j["params"][1]["payloadAttributes"] = temppayloadAttributes;
+
                         cpr::Header headers;
                         for (auto &header : req.headers)
                         {
@@ -252,6 +314,7 @@ int main(int argc, char *argv[])
                 leveldb::Status s = db->Get(leveldb::ReadOptions(), headblockhash, &response); // get the response from the database
                 if (s.ok())
                 {
+                    spdlog::trace("found response in database, sending it to the client CL");
                     res.body = response;
                     res.code = 200;
                     return res;
@@ -270,6 +333,7 @@ int main(int argc, char *argv[])
                 leveldb::Status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
                 if (s.ok())
                 {
+                    spdlog::trace("found exchangeconfig in database, sending it to the client CL");
                     res.body = exchangeconfig;
                     res.code = 200;
                     return res;
@@ -285,6 +349,7 @@ int main(int argc, char *argv[])
             else if (j["method"] == "engine_getPayloadV1" || j["method"] == "engine_newPayloadV1")  // both of these are safe to pass to the EE
             {
                 // we can just forward this request to the node
+                spdlog::trace("engine_getPayloadV1 or engine_newPayloadV1 called by client CL, forwarding to node");
                 cpr::Header headers;
                 for (auto &header : req.headers)
                 {
