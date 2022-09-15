@@ -6,8 +6,6 @@
 #include <leveldb/write_batch.h>
 #include <boost/asio/thread_pool.hpp>
 #include <boost/asio/post.hpp>
-#include <fmt/core.h>
-#include <fmt/format.h>
 #include <crow.h>
 #include "util.hpp"
 #include "crow_log.hpp"
@@ -332,7 +330,9 @@ int main(int argc, char *argv[])
                 else
                 {
                     spdlog::error("Failed to get block {}: {}", headblockhash, s.ToString());
-                    res.body = fmt::format("{{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":{{\"payloadStatus\":{{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null}},\"payloadId\":null}}", j["id"]);
+                    json jresponse = json::parse("{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}");
+                    jresponse["id"] = j["id"];
+                    res.body = jresponse.dump();
                     res.code = 200;
                     return res;
                 }
