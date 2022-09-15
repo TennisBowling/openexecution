@@ -6,6 +6,7 @@
 #include <leveldb/write_batch.h>
 #include <boost/asio/thread_pool.hpp>
 #include <boost/asio/post.hpp>
+#include <format>
 #include <crow.h>
 #include "util.hpp"
 #include "crow_log.hpp"
@@ -170,7 +171,9 @@ int main(int argc, char *argv[])
 
                 if (r.status_code == 200)
                 {
-                    leveldb::Status s = db->Put(leveldb::WriteOptions(), headblockhash, r.text); // store the response in the database to later be used by the client CLs
+                    json jeditid = json::parse(r.text);
+                    jeditid.erase("id");    // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
+                    leveldb::Status s = db->Put(leveldb::WriteOptions(), headblockhash, jeditid.dump()); // store the response in the database to later be used by the client CLs
                     spdlog::trace("put response in database, status {}", s.ToString());
                     res.code = r.status_code;
                     res.body = r.text;
@@ -197,17 +200,20 @@ int main(int argc, char *argv[])
 
                 std::string exchangeconfig;
                 leveldb::Status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
+                json jeditid = json::parse(r.text);
+                jeditid.erase("id"); // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
+                
                 if (s.ok())
                 {
                     leveldb::WriteBatch batch;
                     batch.Delete("exchangeconfig");                 // delete the old exchangeconfig from the database
-                    batch.Put("exchangeconfig", r.text);            // put the new exchangeconfig in the database
+                    batch.Put("exchangeconfig", jeditid.dump());    // put the new exchangeconfig in the database
                     s = db->Write(leveldb::WriteOptions(), &batch); // write the batch to the database
                     spdlog::trace("overwrote exchangeconfig to database, status {}", s.ToString());
                 }
                 else
                 {
-                    s = db->Put(leveldb::WriteOptions(), "exchangeconfig", r.text); // put the new exchangeconfig in the database
+                    s = db->Put(leveldb::WriteOptions(), "exchangeconfig", jeditid.dump()); // put the new exchangeconfig in the database
                     spdlog::trace("wrote new exchangeconfig to database, status {}", s.ToString());
                 }
                 if (s.ok())
@@ -315,14 +321,17 @@ int main(int argc, char *argv[])
                 if (s.ok())
                 {
                     spdlog::trace("found response in database, sending it to the client CL");
-                    res.body = response;
+                    // load the response into a json object, and add the requests' id to it
+                    json jresponse = json::parse(response);
+                    jresponse["id"] = j["id"];
+                    res.body = jresponse.dump();
                     res.code = 200;
                     return res;
                 }
                 else
                 {
                     spdlog::error("Failed to get block {}: {}", headblockhash, s.ToString());
-                    res.body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}";
+                    res.body = std::format("{{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":{{\"payloadStatus\":{{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null}},\"payloadId\":null}}", j["id"]);
                     res.code = 200;
                     return res;
                 }
@@ -334,7 +343,10 @@ int main(int argc, char *argv[])
                 if (s.ok())
                 {
                     spdlog::trace("found exchangeconfig in database, sending it to the client CL");
-                    res.body = exchangeconfig;
+                    // load the response into a json object, and add the requests' id to it
+                    json jresponse = json::parse(exchangeconfig);
+                    jresponse["id"] = j["id"];
+                    res.body = jresponse.dump();
                     res.code = 200;
                     return res;
                 }
