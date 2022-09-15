@@ -7,6 +7,3 @@
 [submodule "leveldb"]
 	path = leveldb
 	url = https://github.com/google/leveldb.git
-[submodule "fmt"]
-	path = fmt
-	url = https://github.com/fmtlib/fmt.git
