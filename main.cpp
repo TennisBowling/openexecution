@@ -384,5 +384,7 @@ int main(int argc, char *argv[])
         }
     };
 
+    server.start();
+
     delete db;
 }
