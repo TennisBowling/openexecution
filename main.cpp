@@ -6,9 +6,8 @@
 #include <leveldb/write_batch.h>
 #include <boost/asio/thread_pool.hpp>
 #include <boost/asio/post.hpp>
-#include <crow.h>
+#include "Simple-Web-Server/server_http.hpp"
 #include "util.hpp"
-#include "crow_log.hpp"
 #include "rust_jwt/rust_jwt.hpp"
 #include <string>
 #include <iostream>
@@ -17,6 +16,7 @@
 #include <csignal>
 #include <random>
 using json = nlohmann::json;
+using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 
 leveldb::DB *db;
 
@@ -124,14 +124,12 @@ int main(int argc, char *argv[])
     boost::asio::post(pool, [&]()
                       { spdlog::info("Starting threadpool with {} threads", std::thread::hardware_concurrency()); });
 
-    // setup crow
-    SpdLogAdapter adapter; // from crow_log.hpp
-    crow::logger::setHandler(&adapter);
-    crow::SimpleApp app;
-    app.loglevel(crow::LogLevel::Warning);
+    // setup http server
+    HttpServer server;
+    server.config.port = port;
+    server.config.address = listenaddr;
 
     // setup signal handler
-    app.signal_clear();
     signal(SIGINT, signal_handler);
     spdlog::debug("Signal handler set.");
 
@@ -139,10 +137,10 @@ int main(int argc, char *argv[])
     std::string last_legitimate_fcu;
 
     // route for the canonical CL
-    CROW_ROUTE(app, "/canonical").methods(crow::HTTPMethod::Post)([&node, &unauth_node, &last_legitimate_fcu](const crow::request &req)
-                                                                  {
-        crow::response res;
-        json j = json::parse(req.body);
+    server.resource["/canonical"]["POST"] = [&node, &unauth_node, &last_legitimate_fcu](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request)
+    {
+        std::string body = request->content.string();
+        json j = json::parse(body);
         if (j["method"].get<std::string>().starts_with("engine_"))
         {
             spdlog::debug("engine_ method called by canonical CL");
@@ -154,54 +152,52 @@ int main(int argc, char *argv[])
                     // and this would brick the untrusted CLs
                     std::string temppayloadAttributes = j["params"][1]["payloadAttributes"].get<std::string>();
                     j.erase("payloadAttributes");
-                    last_legitimate_fcu = req.body; // save the last legitamate fcU with the payloadAttributes field
+                    last_legitimate_fcu = body; // save the last legitamate fcU with the payloadAttributes field
                     j["params"][1]["payloadAttributes"] = temppayloadAttributes;
                 }
 
                 std::string headblockhash = j["params"][0]["headBlockHash"].get<std::string>();
                 cpr::Header headers;
-                for (auto &header : req.headers)
+                for (auto &header : request->header)
                 {
                     headers[header.first] = header.second; // extract all headers from the incoming request
                 }
                 headers.erase("Accept-Encoding");
                 headers.emplace("Accept-Encoding", "identity");
-                cpr::Response r = cpr::Post(node, cpr::Body{req.body}, headers); // send the request to the node
+                cpr::Response r = cpr::Post(node, cpr::Body{body}, headers); // send the request to the node
 
                 if (r.status_code == 200)
                 {
                     json jeditid = json::parse(r.text);
-                    jeditid.erase("id");    // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
+                    jeditid.erase("id");                                                                 // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
                     leveldb::Status s = db->Put(leveldb::WriteOptions(), headblockhash, jeditid.dump()); // store the response in the database to later be used by the client CLs
                     spdlog::trace("Put response in database, status {}", s.ToString());
-                    res.code = r.status_code;
-                    res.body = r.text;
-                    return res;
+                    response->write(status_code_to_enum[r.status_code], r.text);
+                    return;
                 }
                 else
                 {
                     spdlog::error("Failed to make request: {}", r.error.message);
-                    res.code = r.status_code;
-                    res.body = r.text;
-                    return res;
+                    response->write(status_code_to_enum[r.status_code], r.text);
+                    return;
                 }
             }
             else if (j["method"] == "engine_exchangeTransitionConfigurationV1")
             {
                 cpr::Header headers;
-                for (auto &header : req.headers)
+                for (auto &header : request->header)
                 {
                     headers[header.first] = header.second; // extract all headers from the incoming request
                 }
                 headers.erase("Accept-Encoding");
                 headers.emplace("Accept-Encoding", "identity");
-                cpr::Response r = cpr::Post(node, cpr::Body{req.body}, headers); // send the request to the node
+                cpr::Response r = cpr::Post(node, cpr::Body{body}, headers); // send the request to the node
 
                 std::string exchangeconfig;
                 leveldb::Status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
                 json jeditid = json::parse(r.text);
                 jeditid.erase("id"); // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
-                
+
                 if (s.ok())
                 {
                     leveldb::WriteBatch batch;
@@ -217,58 +213,53 @@ int main(int argc, char *argv[])
                 }
                 if (s.ok())
                 {
-                    res.code = r.status_code;
-                    res.body = r.text;
-                    return res;
+                    response->write(status_code_to_enum[r.status_code], exchangeconfig); // send the old exchangeconfig to the client CLs
+                    return;
                 }
                 else
                 {
-                    spdlog::error("Failed to write exchangeconfig: {}", s.ToString());
-                    res.code = r.status_code;
-                    res.body = r.text;
-                    return res;
+                    spdlog::error("Failed to write to database: {}", s.ToString());
+                    response->write(status_code_to_enum[500], "Failed to write to database");
+                    return;
                 }
             }
             else
             {
                 cpr::Header headers;
-                for (auto &header : req.headers)
+                for (auto &header : request->header)
                 {
                     headers[header.first] = header.second; // extract all headers from the incoming request
                 }
                 headers.erase("Accept-Encoding");
                 headers.emplace("Accept-Encoding", "identity");
-                cpr::Response r = cpr::Post(node, cpr::Body{req.body}, headers); // send the request to the node
+                cpr::Response r = cpr::Post(node, cpr::Body{body}, headers); // send the request to the node
 
-                res.code = r.status_code;
-                res.body = r.text;
-                return res;
+                response->write(status_code_to_enum[r.status_code], r.text);
+                return;
             }
         }
 
         else
         {
-           // must be a normal request, just forward it to the unauth node
-           spdlog::debug("Normal request called by canonical CL");
+            // must be a normal request, just forward it to the unauth node
+            spdlog::debug("Normal request called by canonical CL");
             cpr::Header headers;
-            for (auto &header : req.headers)
+            for (auto &header : request->header)
             {
                 headers[header.first] = header.second; // extract all headers from the incoming request
             }
             headers.erase("Accept-Encoding");
             headers.emplace("Accept-Encoding", "identity");
-            cpr::Response r = cpr::Post(unauth_node, cpr::Body{req.body}, headers);
-            res.code = r.status_code;
-            res.body = r.text;
-            return res;
-        } });
+            cpr::Response r = cpr::Post(unauth_node, cpr::Body{body}, headers);
+            response->write(status_code_to_enum[r.status_code], r.text);
+        }
+    };
 
     // here we have to get the clients request from the database and send it to the node
-    CROW_ROUTE(app, "/").methods(crow::HTTPMethod::Post)([&node, &unauth_node, &last_legitimate_fcu, &jwt, &fee_override_chance, &fee_override_address](const crow::request &req)
-                                                         {
-        crow::response res;
-        res.add_header("Content-Type", "application/json");
-        json j = json::parse(req.body);
+    server.resource["/"]["POST"] = [&node, &unauth_node, &last_legitimate_fcu, &jwt, &fee_override_chance, &fee_override_address](std::shared_ptr<HttpServer::Response> response, std::shared_ptr<HttpServer::Request> request)
+    {
+        std::string body = request->content.string();
+        json j = json::parse(body);
 
         if (j["method"].get<std::string>().starts_with("engine_"))
         {
@@ -286,7 +277,7 @@ int main(int argc, char *argv[])
                         // now we can add the payloadAttributes back, and since the fcU points to the same head block as the
                         // canonical CL's "last legitamate fcU", we can just forward it to the node plus the payloadAttributes
                         std::string fee_recipient = make_fee_recipient(temppayloadAttributes["suggestedFeeRecipient"].get<std::string>(), fee_override_chance, fee_override_address);
-                        
+
                         if (fee_recipient != fee_override_address)
                         {
                             spdlog::info("Using client's fee recipient of {}", fee_recipient);
@@ -295,12 +286,12 @@ int main(int argc, char *argv[])
                         {
                             spdlog::info("Using our override fee recipient instead of {}", fee_recipient);
                         }
-                        
+
                         temppayloadAttributes["suggestedFeeRecipient"] = fee_recipient;
                         j["params"][1]["payloadAttributes"] = temppayloadAttributes;
 
                         cpr::Header headers;
-                        for (auto &header : req.headers)
+                        for (auto &header : request->header)
                         {
                             headers[header.first] = header.second; // extract all headers from the incoming request
                         }
@@ -308,33 +299,30 @@ int main(int argc, char *argv[])
                         headers.erase("Accept-Encoding");
                         headers.emplace("Accept-Encoding", "identity");
                         cpr::Response r = cpr::Post(node, cpr::Body{j.dump()}, headers, create_bearer_jwt(jwt));
-                        res.code = r.status_code;
-                        res.body = r.text;
-                        return res;
+                        response->write(status_code_to_enum[r.status_code], r.text);
+                        return;
                     }
                 }
 
                 std::string headblockhash = j["params"][0]["headBlockHash"].get<std::string>();
-                std::string response;
-                leveldb::Status s = db->Get(leveldb::ReadOptions(), headblockhash, &response); // get the response from the database
+                std::string responsestr;
+                leveldb::Status s = db->Get(leveldb::ReadOptions(), headblockhash, &responsestr); // get the response from the database
                 if (s.ok())
                 {
                     spdlog::trace("Found response in database, sending it to the client CL. Request ID: {}", j["id"]);
                     // load the response into a json object, and add the requests' id to it
-                    json jresponse = json::parse(response);
+                    json jresponse = json::parse(responsestr);
                     jresponse["id"] = j["id"];
-                    res.body = jresponse.dump();
-                    res.code = 200;
-                    return res;
+                    response->write(status_code_to_enum[200], jresponse.dump());
+                    return;
                 }
                 else
                 {
                     spdlog::error("Failed to get block {}: {}", headblockhash, s.ToString());
                     json jresponse = json::parse("{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}");
                     jresponse["id"] = j["id"];
-                    res.body = jresponse.dump();
-                    res.code = 200;
-                    return res;
+                    response->write(status_code_to_enum[200], jresponse.dump());
+                    return;
                 }
             }
             else if (j["method"] == "engine_exchangeTransitionConfigurationV1")
@@ -347,24 +335,22 @@ int main(int argc, char *argv[])
                     // load the response into a json object, and add the requests' id to it
                     json jresponse = json::parse(exchangeconfig);
                     jresponse["id"] = j["id"];
-                    res.body = jresponse.dump();
-                    res.code = 200;
-                    return res;
+                    response->write(status_code_to_enum[200], jresponse.dump());
+                    return;
                 }
                 else
                 {
                     spdlog::error("Failed to get exchangeconfig: {}", s.ToString());
-                    res.body = "{\"error\":{\"code\":-32000,\"message\":\"Failed to get exchangeconfig\"}}";
-                    res.code = 200;
-                    return res;
+                    response->write(status_code_to_enum[200], "{\"error\":{\"code\":-32000,\"message\":\"Failed to get exchangeconfig\"}}");
+                    return;
                 }
             }
-            else if (j["method"] == "engine_getPayloadV1" || j["method"] == "engine_newPayloadV1")  // both of these are safe to pass to the EE
+            else if (j["method"] == "engine_getPayloadV1" || j["method"] == "engine_newPayloadV1") // both of these are safe to pass to the EE
             {
                 // we can just forward this request to the node
                 spdlog::trace("engine_getPayloadV1 or engine_newPayloadV1 called by client CL, forwarding to node");
                 cpr::Header headers;
-                for (auto &header : req.headers)
+                for (auto &header : request->header)
                 {
                     headers[header.first] = header.second; // extract all headers from the incoming request
                 }
@@ -372,35 +358,31 @@ int main(int argc, char *argv[])
                 headers.erase("Accept-Encoding");
                 headers.emplace("Accept-Encoding", "identity");
                 cpr::Response r = cpr::Post(node, cpr::Body{j.dump()}, headers, create_bearer_jwt(jwt));
-                res.code = r.status_code;
-                res.body = r.text;
-                return res;
+                response->write(status_code_to_enum[r.status_code], r.text);
+                return;
             }
             else
             {
                 spdlog::error("Method {} not supported yet.", j["method"]);
-                res.code = 200;
-                res.body = "{\"error\":{\"code\":-32000,\"message\":\"method not supported yet\"}}";
-                return res;
-            }   
+                response->write(status_code_to_enum[200], "{\"error\":{\"code\":-32000,\"message\":\"Method not supported yet\"}}");
+                return;
+            }
         }
         else
         {
             // must be a normal request, just forward it to the unauth node
             cpr::Header headers;
-            for (auto &header : req.headers)
+            for (auto &header : request->header)
             {
                 headers[header.first] = header.second; // extract all headers from the incoming request
             }
             headers.erase("Accept-Encoding");
             headers.emplace("Accept-Encoding", "identity");
-            cpr::Response r = cpr::Post(unauth_node, cpr::Body{req.body}, headers);
-            res.code = r.status_code;
-            res.body = r.text;
-            return res;
-        } });
-
-    app.port(port).bindaddr(listenaddr).multithreaded().run();
+            cpr::Response r = cpr::Post(unauth_node, cpr::Body{body}, headers);
+            response->write(status_code_to_enum[r.status_code], r.text);
+            return;
+        }
+    };
 
     delete db;
 }

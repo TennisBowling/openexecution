@@ -48,11 +48,6 @@ else()
 endif()
 
 include(FetchContent)
-set(CROW_BUILD_EXAMPLES OFF)
-set(CROW_BUILD_TESTS OFF)
-set(CROW_INSTALL OFF)
-add_subdirectory(crow)
-target_link_libraries(openexecution PRIVATE Crow::Crow)
 
 set(LEVELDB_BUILD_TESTS OFF)
 set(LEVELDB_BUILD_BENCHMARKS OFF)
