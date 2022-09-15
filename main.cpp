@@ -6,7 +6,8 @@
 #include <leveldb/write_batch.h>
 #include <boost/asio/thread_pool.hpp>
 #include <boost/asio/post.hpp>
-#include <format>
+#include <fmt/core.h>
+#include <fmt/format.h>
 #include <crow.h>
 #include "util.hpp"
 #include "crow_log.hpp"
@@ -331,7 +332,7 @@ int main(int argc, char *argv[])
                 else
                 {
                     spdlog::error("Failed to get block {}: {}", headblockhash, s.ToString());
-                    res.body = std::format("{{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":{{\"payloadStatus\":{{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null}},\"payloadId\":null}}", j["id"]);
+                    res.body = fmt::format("{{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":{{\"payloadStatus\":{{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null}},\"payloadId\":null}}", j["id"]);
                     res.code = 200;
                     return res;
                 }
