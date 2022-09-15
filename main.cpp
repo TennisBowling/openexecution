@@ -213,7 +213,7 @@ int main(int argc, char *argv[])
                 }
                 if (s.ok())
                 {
-                    response->write(status_code_to_enum[r.status_code], exchangeconfig); // send the old exchangeconfig to the client CLs
+                    response->write(status_code_to_enum[r.status_code], r.text); // send the old exchangeconfig to the client CLs
                     return;
                 }
                 else
