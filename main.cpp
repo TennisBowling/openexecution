@@ -174,7 +174,7 @@ int main(int argc, char *argv[])
                     json jeditid = json::parse(r.text);
                     jeditid.erase("id");    // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
                     leveldb::Status s = db->Put(leveldb::WriteOptions(), headblockhash, jeditid.dump()); // store the response in the database to later be used by the client CLs
-                    spdlog::trace("put response in database, status {}", s.ToString());
+                    spdlog::trace("Put response in database, status {}", s.ToString());
                     res.code = r.status_code;
                     res.body = r.text;
                     return res;
@@ -209,12 +209,12 @@ int main(int argc, char *argv[])
                     batch.Delete("exchangeconfig");                 // delete the old exchangeconfig from the database
                     batch.Put("exchangeconfig", jeditid.dump());    // put the new exchangeconfig in the database
                     s = db->Write(leveldb::WriteOptions(), &batch); // write the batch to the database
-                    spdlog::trace("overwrote exchangeconfig to database, status {}", s.ToString());
+                    spdlog::trace("Overwrote exchangeconfig to database, status {}", s.ToString());
                 }
                 else
                 {
                     s = db->Put(leveldb::WriteOptions(), "exchangeconfig", jeditid.dump()); // put the new exchangeconfig in the database
-                    spdlog::trace("wrote new exchangeconfig to database, status {}", s.ToString());
+                    spdlog::trace("Wrote new exchangeconfig to database, status {}", s.ToString());
                 }
                 if (s.ok())
                 {
@@ -250,7 +250,7 @@ int main(int argc, char *argv[])
         else
         {
            // must be a normal request, just forward it to the unauth node
-           spdlog::debug("normal request called by canonical CL");
+           spdlog::debug("Normal request called by canonical CL");
             cpr::Header headers;
             for (auto &header : req.headers)
             {
@@ -278,7 +278,7 @@ int main(int argc, char *argv[])
                 spdlog::trace("engine_forkchoiceUpdated called by client CL");
                 if (j["params"][1]["payloadAttributes"] != std::nullptr_t())
                 {
-                    spdlog::trace("client CL sent a fcU with payloadAttributes, wants to build a block");
+                    spdlog::trace("Client CL sent a fcU with payloadAttributes, wants to build a block");
                     // temp remove payloadAttributes, check if it's then equal to the last legitamate fcU
                     json temppayloadAttributes = json::parse(j["params"][1]["payloadAttributes"].get<std::string>());
                     j.erase("payloadAttributes");
@@ -320,7 +320,7 @@ int main(int argc, char *argv[])
                 leveldb::Status s = db->Get(leveldb::ReadOptions(), headblockhash, &response); // get the response from the database
                 if (s.ok())
                 {
-                    spdlog::trace("found response in database, sending it to the client CL");
+                    spdlog::trace("Found response in database, sending it to the client CL. Request ID: {}", j["id"]);
                     // load the response into a json object, and add the requests' id to it
                     json jresponse = json::parse(response);
                     jresponse["id"] = j["id"];
@@ -342,7 +342,7 @@ int main(int argc, char *argv[])
                 leveldb::Status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
                 if (s.ok())
                 {
-                    spdlog::trace("found exchangeconfig in database, sending it to the client CL");
+                    spdlog::trace("Found exchangeconfig in database, sending it to the client CL. Request ID {}", j["id"]);
                     // load the response into a json object, and add the requests' id to it
                     json jresponse = json::parse(exchangeconfig);
                     jresponse["id"] = j["id"];
@@ -377,7 +377,7 @@ int main(int argc, char *argv[])
             }
             else
             {
-                spdlog::error("method {} not supported yet.", j["method"]);
+                spdlog::error("Method {} not supported yet.", j["method"]);
                 res.code = 200;
                 res.body = "{\"error\":{\"code\":-32000,\"message\":\"method not supported yet\"}}";
                 return res;
