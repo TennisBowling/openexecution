@@ -309,7 +309,7 @@ int main(int argc, char *argv[])
                 leveldb::Status s = db->Get(leveldb::ReadOptions(), headblockhash, &responsestr); // get the response from the database
                 if (s.ok())
                 {
-                    spdlog::trace("Found response in database, sending it to the client CL. Request ID: {}", j["id"]);
+                    spdlog::trace("Found response in database, sending it to the client CL. Request ID: {}", j["id"].dump());
                     // load the response into a json object, and add the requests' id to it
                     json jresponse = json::parse(responsestr);
                     jresponse["id"] = j["id"];
@@ -331,7 +331,7 @@ int main(int argc, char *argv[])
                 leveldb::Status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
                 if (s.ok())
                 {
-                    spdlog::trace("Found exchangeconfig in database, sending it to the client CL. Request ID {}", j["id"]);
+                    spdlog::trace("Found exchangeconfig in database, sending it to the client CL. Request ID: {}", j["id"].dump());
                     // load the response into a json object, and add the requests' id to it
                     json jresponse = json::parse(exchangeconfig);
                     jresponse["id"] = j["id"];
