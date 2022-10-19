@@ -20,7 +20,7 @@ using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
 
 leveldb::DB *db;
 
-cpr::Header identityheaders;
+cpr::Header defaultheaders;
 
 boost::asio::thread_pool pool(std::thread::hardware_concurrency());
 
@@ -63,7 +63,8 @@ int main(int argc, char *argv[])
 {
     spdlog::set_pattern("[%Y-%m-%d %H:%M:%S] [%^%l%$] - %v"); // nice style that i like
 
-    identityheaders.emplace("Accept-Encoding", "identity");
+    defaultheaders.emplace("Accept-Encoding", "identity");
+    defaultheaders.emplace("Content-Type", "application/json");
 
     auto vm = parse_args(argc, argv);
 
@@ -251,7 +252,7 @@ int main(int argc, char *argv[])
             {
                 // must be a normal request, just forward it to the unauth node
                 spdlog::debug("Normal request called by canonical CL");
-                cpr::Response r = cpr::Post(unauth_node, cpr::Body{body}, identityheaders);
+                cpr::Response r = cpr::Post(unauth_node, cpr::Body{body}, defaultheaders);
                 response->write(status_code_to_enum[r.status_code], r.text);
             } });
     };
@@ -293,7 +294,7 @@ int main(int argc, char *argv[])
                             temppayloadAttributes["suggestedFeeRecipient"] = fee_recipient;
                             j["params"][1]["payloadAttributes"] = temppayloadAttributes;
 
-                            cpr::Response r = cpr::Post(node, cpr::Body{j.dump()}, identityheaders, create_bearer_jwt(jwt));
+                            cpr::Response r = cpr::Post(node, cpr::Body{j.dump()}, defaultheaders, create_bearer_jwt(jwt));
                             response->write(status_code_to_enum[r.status_code], r.text);
                             return;
                         }
@@ -351,7 +352,7 @@ int main(int argc, char *argv[])
                     // we can just forward this request to the node
                     spdlog::trace("engine_getPayloadV1 or engine_newPayloadV1 called by client CL, forwarding to node");
 
-                    cpr::Response r = cpr::Post(node, cpr::Body{j.dump()}, identityheaders, create_bearer_jwt(jwt));
+                    cpr::Response r = cpr::Post(node, cpr::Body{j.dump()}, defaultheaders, create_bearer_jwt(jwt));
                     response->write(status_code_to_enum[r.status_code], r.text);
                     return;
                 }
@@ -365,7 +366,7 @@ int main(int argc, char *argv[])
             else
             {
                 // must be a normal request, just forward it to the unauth node
-                cpr::Response r = cpr::Post(unauth_node, cpr::Body{body}, identityheaders);
+                cpr::Response r = cpr::Post(unauth_node, cpr::Body{body}, defaultheaders);
                 response->write(status_code_to_enum[r.status_code], r.text);
                 return;
             } });
