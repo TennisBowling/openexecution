@@ -171,6 +171,7 @@ int main(int argc, char *argv[])
                     {
                         headers[header.first] = header.second; // extract all headers from the incoming request
                     }
+                    headers.erase("Host"); // prevent vhosts checks from failing
                     headers.erase("Accept-Encoding");
                     headers.emplace("Accept-Encoding", "identity");
                     cpr::Response r = cpr::Post(node, cpr::Body{body}, headers); // send the request to the node
@@ -198,6 +199,7 @@ int main(int argc, char *argv[])
                     {
                         headers[header.first] = header.second; // extract all headers from the incoming request
                     }
+                    headers.erase("Host"); // prevent vhosts checks from failing
                     headers.erase("Accept-Encoding");
                     headers.emplace("Accept-Encoding", "identity");
                     cpr::Response r = cpr::Post(node, cpr::Body{body}, headers); // send the request to the node
@@ -239,6 +241,7 @@ int main(int argc, char *argv[])
                     {
                         headers[header.first] = header.second; // extract all headers from the incoming request
                     }
+                    headers.erase("Host"); // prevent vhosts checks from failing
                     headers.erase("Accept-Encoding");
                     headers.emplace("Accept-Encoding", "identity");
                     cpr::Response r = cpr::Post(node, cpr::Body{body}, headers); // send the request to the node
