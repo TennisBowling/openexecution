@@ -49,10 +49,8 @@ endif()
 
 include(FetchContent)
 
-set(LEVELDB_BUILD_TESTS OFF)
-set(LEVELDB_BUILD_BENCHMARKS OFF)
-add_subdirectory(leveldb)
-target_link_libraries(openexecution PRIVATE leveldb)
+add_subdirectory(rocksdb)
+target_link_libraries(openexecution PRIVATE rocksdb)
 
 FetchContent_Declare(cpr GIT_REPOSITORY https://github.com/libcpr/cpr.git
     GIT_TAG db351ffbbadc6c4e9239daaa26e9aefa9f0ec82d)
