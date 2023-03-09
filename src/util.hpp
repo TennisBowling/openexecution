@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <fstream>
 #include <iostream>
-#include "Simple-Web-Server/server_http.hpp"
+#include "../Simple-Web-Server/server_http.hpp"
 #include <cpr/cpr.h>
 #include <boost/program_options.hpp>
 #include <boost/config.hpp>
@@ -113,6 +113,8 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
         ("fee_override_chance", boost::program_options::value<double>(), "percentage in decimal form that a clients fee recipient gets replaced with your own") // fee_override_chance
         ("fee_override_address", boost::program_options::value<std::string>(), "address to replace the fee recipient with")                                     // fee_override_address
         ("unauth-node, un", boost::program_options::value<std::string>(), "unauthenticated node url (could be something like infura)")                          // unauth-node
+        ("ws-unauth-node,ws-un", boost::program_options::value<std::string>(), "unauthenticated node ws url (could be something like infura)")                   // unauth-node
+        ("ws-node,ws", boost::program_options::value<std::string>(), "the ws route for the canonical node.")
         ("node,n", boost::program_options::value<std::string>(), "the ip of the \"canonical\" node");                                                           // canonical node
 
     boost::program_options::variables_map vm;
@@ -140,13 +142,13 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
         exit(1);
     }
 
-    if (vm.count("node") == 0)
+    if (vm.count("node") == 0 && vm.count("ws-node") == 0)
     {
         spdlog::critical("no canonical node specified, exiting");
         exit(1);
     }
 
-    if (vm.count("unauth-node") == 0)
+    if (vm.count("unauth-node") == 0 && vm.count("ws-unauth-node") == 0)
     {
         spdlog::critical("no unauthenticated node specified, exiting");
         exit(1);

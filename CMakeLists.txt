@@ -25,7 +25,7 @@ set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 enable_language(Rust)
 include(CMakeCargo)
 
-add_executable(openexecution main.cpp)
+add_executable(openexecution src/main.cpp)
 option(BUILD_SHARED_LIBS "build libraries shared" OFF)
 option(CURL_ZLIB "use curl with zlib" OFF)
 
