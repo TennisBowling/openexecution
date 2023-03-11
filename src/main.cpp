@@ -251,6 +251,57 @@ int main(int argc, char *argv[])
                             return;
                         }
                     }
+                    else if (j["method"] == "engine_newPayloadV1")
+                    {
+                        // make request to node
+                        std::string resp = make_request(node, noderouter, j, request->header);
+
+                        if (!resp.empty())
+                        {
+                            json jeditid = json::parse(resp);
+                            jeditid.erase("id"); // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
+                            Status s = db->Put(WriteOptions(), j["params"][0]["blockHash"].get<std::string>(), jeditid.dump()); // store the response in the database to later be used by the client CLs
+                            spdlog::trace("Put response in database, status {}", s.ToString());
+                            response->write(status_code_to_enum[200], resp);
+                            return;
+                        }
+                        else
+                        {
+                            spdlog::error("Failed to make request to canonical node");
+                            response->write(status_code_to_enum[500], "Failed to make request to canonical node");
+                            return;
+                        }
+                    }
+                    else if (j["method"] == "engine_getPayloadV1")
+                    {
+                        // make request to node
+                        std::string resp = make_request(node, noderouter, j, request->header);
+
+                        if (!resp.empty())
+                        {
+                            json jeditid = json::parse(resp);
+                            jeditid.erase("id"); // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
+                            Status s = db->Put(WriteOptions(), j["params"][0]["blockHash"].get<std::string>(), jeditid.dump()); // store the response in the database to later be used by the client CLs
+                            if (s.ok())
+                            {
+                                spdlog::trace("Put response in database, status {}", s.ToString());
+                                response->write(status_code_to_enum[200], resp);
+                                return;
+                            }
+                            else
+                            {
+                                spdlog::error("Failed to put response in database, status {}", s.ToString());
+                                response->write(status_code_to_enum[500], "Failed to put response in database");
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            spdlog::error("Failed to make request to canonical node");
+                            response->write(status_code_to_enum[500], "Failed to make request to canonical node");
+                            return;
+                        }
+                    }
                     else if (j["method"] == "engine_exchangeTransitionConfigurationV1")
                     {
                         // make request to node
@@ -345,10 +396,16 @@ int main(int argc, char *argv[])
                                 // make request with default headers and add the jwt to it
                                 auto defaultheadercopy = request->header;
                                 defaultheadercopy.emplace("Authorization", "Bearer " + create_bearer_jwt(jwt));
-                                std::string resp = make_request(unauthnode, unauthnoderouter, j, defaultheadercopy);
+                                std::string resp = make_request(authnode, authnoderouter, j, defaultheadercopy);
                                 response->write(status_code_to_enum[200], resp);
                                 return;
                             }
+                            else {
+                                spdlog::trace("Client CL sent a fcU with payloadAttributes, but it's not equal to the last legitamate fcU, so we can't forward it to the node");
+                                response->write(status_code_to_enum[200], "{\"error\":{\"code\":-32000,\"message\":\"Cannot let you build a block with an invalid fcU\"}}");
+                                return;
+                            }
+
                         }
 
                         std::string headblockhash = j["params"][0]["headBlockHash"].get<std::string>();
@@ -368,7 +425,7 @@ int main(int argc, char *argv[])
                             else
                             {
                                 spdlog::debug("Failed to get block {}: {}", headblockhash, s.ToString());
-                                std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                                std::this_thread::sleep_for(std::chrono::milliseconds(150));
                                 continue;
                             }
                         }
@@ -398,14 +455,35 @@ int main(int argc, char *argv[])
                             return;
                         }
                     }
-                    else if (j["method"] == "engine_getPayloadV1" || j["method"] == "engine_newPayloadV1") // both of these are safe to pass to the EE
+                    else if (j["method"] == "engine_newPayloadV1") {
+                        // get from db or make a request to auth node if not found
+                        std::string blockhash = j["params"][0]["blockHash"].get<std::string>();
+                        std::string responsestr;
+                        Status s = db->Get(ReadOptions(), blockhash, &responsestr); // get the response from the database
+                        
+                        if (s.ok() && !responsestr.empty()) {
+                            // load the response into a json object, and add the requests' id to it
+                            json jresponse = json::parse(responsestr);
+                            jresponse["id"] = j["id"];
+                            response->write(status_code_to_enum[200], jresponse.dump()); // send the response to the client CL
+                        }
+                        else {
+                            // forward the request to the auth node
+                            auto defaultheadercopy = request->header;
+                            defaultheadercopy.emplace("Authorization", "Bearer " + create_bearer_jwt(jwt));
+                            std::string resp = make_request(authnode, authnoderouter, j, defaultheadercopy);
+                            response->write(status_code_to_enum[200], resp);
+                        }
+                    }
+
+                    else if (j["method"] == "engine_getPayloadV1") // safe to pass to the EE
                     {
                         // we can just forward this request to the node
                         spdlog::trace("engine_getPayloadV1 or engine_newPayloadV1 called by client CL, forwarding to node");
 
                         auto defaultheadercopy = request->header;
                         defaultheadercopy.emplace("Authorization", "Bearer " + create_bearer_jwt(jwt));
-                        std::string resp = make_request(unauthnode, unauthnoderouter, j, defaultheadercopy);
+                        std::string resp = make_request(authnode, authnoderouter, j, defaultheadercopy);
                         response->write(status_code_to_enum[200], resp);
                         return;
                     }

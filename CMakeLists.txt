@@ -57,7 +57,7 @@ FetchContent_Declare(cpr GIT_REPOSITORY https://github.com/libcpr/cpr.git
 FetchContent_MakeAvailable(cpr)
 target_link_libraries(openexecution PRIVATE cpr::cpr)
 
-FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.10.5/json.tar.xz)
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.2/json.tar.xz)
 FetchContent_MakeAvailable(json)
 target_link_libraries(openexecution PRIVATE nlohmann_json::nlohmann_json)
 
