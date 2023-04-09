@@ -1,9 +1,7 @@
 #include <cpr/cpr.h>
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
-#include <rocksdb/db.h>
-#include <rocksdb/options.h>
-#include <rocksdb/slice.h>
+#include <leveldb/db.h>
 #include <boost/asio/thread_pool.hpp>
 #include <boost/asio/post.hpp>
 #include "../Simple-Web-Server/server_http.hpp"
@@ -19,7 +17,7 @@
 
 using json = nlohmann::json;
 using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
-using namespace rocksdb;
+using namespace = leveldb;
 
 DB *db;
 

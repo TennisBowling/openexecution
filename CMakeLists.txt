@@ -49,10 +49,8 @@ endif()
 
 include(FetchContent)
 
-FetchContent_Declare(rocksdb GIT_REPOSITORY https://github.com/facebook/rocksdb.git
-    GIT_TAG v8.0.0)
-FetchContent_MakeAvailable(rocksdb)
-target_link_libraries(openexecution PRIVATE rocksdb)
+add_subdirectory(leveldb)
+target_link_libraries(openexecution PRIVATE leveldb)
 
 FetchContent_Declare(cpr GIT_REPOSITORY https://github.com/libcpr/cpr.git
     GIT_TAG db351ffbbadc6c4e9239daaa26e9aefa9f0ec82d)
