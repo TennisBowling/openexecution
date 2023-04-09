@@ -19,13 +19,7 @@
 
 using json = nlohmann::json;
 using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
-using ROCKSDB_NAMESPACE::DB;
-using ROCKSDB_NAMESPACE::Options;
-using ROCKSDB_NAMESPACE::PinnableSlice;
-using ROCKSDB_NAMESPACE::ReadOptions;
-using ROCKSDB_NAMESPACE::Status;
-using ROCKSDB_NAMESPACE::WriteBatch;
-using ROCKSDB_NAMESPACE::WriteOptions;
+using namespace rocksdb;
 
 DB *db;
 
@@ -219,9 +213,9 @@ int main(int argc, char *argv[])
                 if (j["method"].get<std::string>().starts_with("engine_"))
                 {
                     spdlog::debug("engine_ method called by canonical CL");
-                    if (j["method"] == "engine_forkchoiceUpdatedV1")
+                    if (j["method"] == "engine_forkchoiceUpdatedV1" || j["method"] == "engine_forkchoiceUpdatedV2")
                     {
-                        if (j["params"][1].contains("payloadAttributes"))
+                        if (j["params"][1].contains("payloadAttributesV1") || j["params"][1].contains("payloadAttributesV2"))
                         {
                             // if this CL is a CL that also serves a validator, at some point it will send a fcU that has a payloadAttributes field
                             // and this would brick the untrusted CLs
@@ -251,7 +245,7 @@ int main(int argc, char *argv[])
                             return;
                         }
                     }
-                    else if (j["method"] == "engine_newPayloadV1")
+                    else if (j["method"] == "engine_newPayloadV1" || j["method"] == "engine_newPayloadV2")
                     {
                         // make request to node
                         std::string resp = make_request(node, noderouter, j, request->header);
@@ -272,7 +266,7 @@ int main(int argc, char *argv[])
                             return;
                         }
                     }
-                    else if (j["method"] == "engine_getPayloadV1")
+                    else if (j["method"] == "engine_getPayloadV1" || j["method"] == "engine_getPayloadV2")
                     {
                         // make request to node
                         std::string resp = make_request(node, noderouter, j, request->header);
@@ -366,7 +360,7 @@ int main(int argc, char *argv[])
 
                 if (j["method"].get<std::string>().starts_with("engine_"))
                 {
-                    if (j["method"] == "engine_forkchoiceUpdatedV1")
+                    if (j["method"] == "engine_forkchoiceUpdatedV1" || j["method"] == "engine_forkchoiceUpdatedV2")
                     {
                         spdlog::trace("engine_forkchoiceUpdated called by client CL");
                         if (j["params"][1]["payloadAttributes"] != std::nullptr_t())
@@ -396,7 +390,7 @@ int main(int argc, char *argv[])
                                 // make request with default headers and add the jwt to it
                                 auto defaultheadercopy = request->header;
                                 defaultheadercopy.emplace("Authorization", "Bearer " + create_bearer_jwt(jwt));
-                                std::string resp = make_request(authnode, authnoderouter, j, defaultheadercopy);
+                                std::string resp = make_request(node, noderouter, j, defaultheadercopy);
                                 response->write(status_code_to_enum[200], resp);
                                 return;
                             }
@@ -455,7 +449,7 @@ int main(int argc, char *argv[])
                             return;
                         }
                     }
-                    else if (j["method"] == "engine_newPayloadV1") {
+                    else if (j["method"] == "engine_newPayloadV1" || j["method"] == "engine_newPayloadV2") {
                         // get from db or make a request to auth node if not found
                         std::string blockhash = j["params"][0]["blockHash"].get<std::string>();
                         std::string responsestr;
@@ -471,19 +465,19 @@ int main(int argc, char *argv[])
                             // forward the request to the auth node
                             auto defaultheadercopy = request->header;
                             defaultheadercopy.emplace("Authorization", "Bearer " + create_bearer_jwt(jwt));
-                            std::string resp = make_request(authnode, authnoderouter, j, defaultheadercopy);
+                            std::string resp = make_request(node, noderouter, j, defaultheadercopy);
                             response->write(status_code_to_enum[200], resp);
                         }
                     }
 
-                    else if (j["method"] == "engine_getPayloadV1") // safe to pass to the EE
+                    else if (j["method"] == "engine_getPayloadV1" || j["method"] == "engine_getPayloadV2") // safe to pass to the EE
                     {
                         // we can just forward this request to the node
                         spdlog::trace("engine_getPayloadV1 or engine_newPayloadV1 called by client CL, forwarding to node");
 
                         auto defaultheadercopy = request->header;
                         defaultheadercopy.emplace("Authorization", "Bearer " + create_bearer_jwt(jwt));
-                        std::string resp = make_request(authnode, authnoderouter, j, defaultheadercopy);
+                        std::string resp = make_request(node, noderouter, j, defaultheadercopy);
                         response->write(status_code_to_enum[200], resp);
                         return;
                     }
