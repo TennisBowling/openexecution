@@ -2,6 +2,8 @@
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 #include <leveldb/db.h>
+#include <leveldb/cache.h>
+#include <leveldb/write_batch.h>
 #include <boost/asio/thread_pool.hpp>
 #include <boost/asio/post.hpp>
 #include "../Simple-Web-Server/server_http.hpp"
@@ -17,9 +19,10 @@
 
 using json = nlohmann::json;
 using HttpServer = SimpleWeb::Server<SimpleWeb::HTTP>;
-using namespace = leveldb;
 
-DB *db;
+
+
+leveldb::DB *db;
 
 SimpleWeb::CaseInsensitiveMultimap defaultheaders;
 
@@ -171,12 +174,11 @@ int main(int argc, char *argv[])
     auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
 
     // setup rocksdb
-    Options options;
+    leveldb::Options options;
     options.create_if_missing = true;
-    options.IncreaseParallelism();
-    options.OptimizeLevelStyleCompaction();
+    options.block_cache = leveldb::NewLRUCache(3145728); // 3MB cache
     // TODO: add caching
-    Status status = DB::Open(options, "./db", &db);
+    leveldb::Status status = leveldb::DB::Open(options, "./db", &db);
     if (!status.ok())
     {
         spdlog::error("Failed to open database: {}", status.ToString());
@@ -231,7 +233,7 @@ int main(int argc, char *argv[])
                         {
                             json jeditid = json::parse(resp);
                             jeditid.erase("id");                                                                 // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
-                            Status s = db->Put(WriteOptions(), headblockhash, jeditid.dump()); // store the response in the database to later be used by the client CLs
+                            leveldb::Status s = db->Put(leveldb::WriteOptions(), headblockhash, jeditid.dump()); // store the response in the database to later be used by the client CLs
                             spdlog::trace("Put response in database, status {}", s.ToString());
                             response->write(status_code_to_enum[200], resp);
                             return;
@@ -252,7 +254,7 @@ int main(int argc, char *argv[])
                         {
                             json jeditid = json::parse(resp);
                             jeditid.erase("id"); // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
-                            Status s = db->Put(WriteOptions(), j["params"][0]["blockHash"].get<std::string>(), jeditid.dump()); // store the response in the database to later be used by the client CLs
+                            leveldb::Status s = db->Put(leveldb::WriteOptions(), j["params"][0]["blockHash"].get<std::string>(), jeditid.dump()); // store the response in the database to later be used by the client CLs
                             spdlog::trace("Put response in database, status {}", s.ToString());
                             response->write(status_code_to_enum[200], resp);
                             return;
@@ -273,7 +275,7 @@ int main(int argc, char *argv[])
                         {
                             json jeditid = json::parse(resp);
                             jeditid.erase("id"); // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
-                            Status s = db->Put(WriteOptions(), j["params"][0]["blockHash"].get<std::string>(), jeditid.dump()); // store the response in the database to later be used by the client CLs
+                            leveldb::Status s = db->Put(leveldb::WriteOptions(), j["params"][0]["blockHash"].get<std::string>(), jeditid.dump()); // store the response in the database to later be used by the client CLs
                             if (s.ok())
                             {
                                 spdlog::trace("Put response in database, status {}", s.ToString());
@@ -300,21 +302,21 @@ int main(int argc, char *argv[])
                         std::string resp = make_request(node, noderouter, j, request->header);
 
                         std::string exchangeconfig;
-                        Status s = db->Get(ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
+                        leveldb::Status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
                         json jeditid = json::parse(resp);
                         jeditid.erase("id"); // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
 
                         if (s.ok())
                         {
-                            WriteBatch batch;
+                            leveldb::WriteBatch batch;
                             batch.Delete("exchangeconfig");                 // delete the old exchangeconfig from the database
                             batch.Put("exchangeconfig", jeditid.dump());    // put the new exchangeconfig in the database
-                            s = db->Write(WriteOptions(), &batch); // write the batch to the database
+                            s = db->Write(leveldb::WriteOptions(), &batch); // write the batch to the database
                             spdlog::trace("Overwrote exchangeconfig to database, status {}", s.ToString());
                         }
                         else
                         {
-                            s = db->Put(WriteOptions(), "exchangeconfig", jeditid.dump()); // put the new exchangeconfig in the database
+                            s = db->Put(leveldb::WriteOptions(), "exchangeconfig", jeditid.dump()); // put the new exchangeconfig in the database
                             spdlog::trace("Wrote new exchangeconfig to database, status {}", s.ToString());
                         }
                         if (s.ok())
@@ -404,7 +406,7 @@ int main(int argc, char *argv[])
                         std::string responsestr;
                         for (int i = 0; i < 5; i++) // will iterate 5 times to try and get the response from the db as the canonical CL might not have written to it yet
                         {
-                            Status s = db->Get(ReadOptions(), headblockhash, &responsestr); // get the response from the database
+                            leveldb::Status s = db->Get(leveldb::ReadOptions(), headblockhash, &responsestr); // get the response from the database
                             if (s.ok())
                             {
                                 spdlog::trace("Found response in database, sending it to the client CL. Request ID: {}", j["id"]);
@@ -430,7 +432,7 @@ int main(int argc, char *argv[])
                     else if (j["method"] == "engine_exchangeTransitionConfigurationV1")
                     {
                         std::string exchangeconfig;
-                        Status s = db->Get(ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
+                        leveldb::Status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
                         if (s.ok())
                         {
                             spdlog::trace("Found exchangeconfig in database, sending it to the client CL. Request ID {}", j["id"]);
@@ -451,7 +453,7 @@ int main(int argc, char *argv[])
                         // get from db or make a request to auth node if not found
                         std::string blockhash = j["params"][0]["blockHash"].get<std::string>();
                         std::string responsestr;
-                        Status s = db->Get(ReadOptions(), blockhash, &responsestr); // get the response from the database
+                        leveldb::Status s = db->Get(leveldb::ReadOptions(), blockhash, &responsestr); // get the response from the database
                         
                         if (s.ok() && !responsestr.empty()) {
                             // load the response into a json object, and add the requests' id to it
