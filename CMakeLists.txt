@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13.0)
 cmake_policy(SET CMP0069 NEW)
-project(openexecution VERSION 1.0.1)
+project(openexecution VERSION 1.1.1)
 
 # include(CTest)
 # enable_testing()
