@@ -129,7 +129,7 @@ boost::program_options::variables_map parse_args(int argc, char *argv[])
 
     if (vm.count("version"))
     {
-        std::cout << "openexecution version 1.1.1\n";
+        std::cout << "openexecution version 1.1.2\n";
         std::cout << "Compiled with " << BOOST_COMPILER << std::endl;
         std::cout << "Made with love by tennis ;) <3" << std::endl;
         exit(0);

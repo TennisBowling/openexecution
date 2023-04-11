@@ -481,6 +481,18 @@ int main(int argc, char *argv[])
                         response->write(status_code_to_enum[200], resp);
                         return;
                     }
+                    else if (j["method"] == "engine_getPayloadBodiesByHashV1" || j["method"] == "engine_getPayloadBodiesByRangeV1")
+                    {
+                        // this is safe to pass to the EE
+                        spdlog::trace("engine_getPayloadBodiesByHashV1 or engine_getPayloadBodiesByRangeV1 called by client CL, forwarding to node");
+
+                        auto defaultheadercopy = request->header;
+                        defaultheadercopy.emplace("Authorization", "Bearer " + create_bearer_jwt(jwt));
+                        std::string resp = make_request(node, noderouter, j, defaultheadercopy);
+                        response->write(status_code_to_enum[200], resp);
+                        return;
+
+                    }
                     else
                     {
                         spdlog::error("Method {} not supported yet.", j["method"]);
