@@ -35,12 +35,12 @@ jobs:
             cc: "gcc", cxx: "g++",
             cpack: "",
           }
-        - {
-            name: "macOS Latest Clang", artifact: "macOS.dmg",
-            os: macos-latest,
-            cc: "clang", cxx: "clang++",
-            cpack_flags: "-G DragNDrop",
-          }
+        #- {
+        #    name: "macOS Latest Clang", artifact: "macOS.dmg",
+        #    os: macos-latest,
+        #    cc: "clang", cxx: "clang++",
+        #    cpack_flags: "-G DragNDrop",
+        #  }
 
     steps:
     - uses: actions/checkout@v2
@@ -57,9 +57,9 @@ jobs:
       run: |
         if [ "$RUNNER_OS" == "Linux" ]; then
             sudo apt-get install -y openssl libssl-dev
-        elif [ "$RUNNER_OS" == "macOS" ]; then
-            brew install openssl
-            brew link --force openssl
+        # elif [ "$RUNNER_OS" == "macOS" ]; then
+        #     brew install openssl
+        #     brew link --force openssl
         elif [ "$RUNNER_OS" == "Windows" ]; then
             choco install -y openssl
         fi
@@ -78,10 +78,10 @@ jobs:
           set(ninja_suffix "linux.zip")
           set(cmake_suffix "linux-x86_64.tar.gz")
           set(cmake_dir "cmake-${cmake_version}-linux-x86_64/bin")
-        elseif ("${{ runner.os }}" STREQUAL "macOS")
-          set(ninja_suffix "mac.zip")
-          set(cmake_suffix "macos-universal.tar.gz")
-          set(cmake_dir "cmake-${cmake_version}-macos-universal/CMake.app/Contents/bin")
+        # elseif ("${{ runner.os }}" STREQUAL "macOS")
+        #   set(ninja_suffix "mac.zip")
+        #   set(cmake_suffix "macos-universal.tar.gz")
+        #   set(cmake_dir "cmake-${cmake_version}-macos-universal/CMake.app/Contents/bin")
         endif()
         set(ninja_url "https://github.com/ninja-build/ninja/releases/download/v${ninja_version}/ninja-${ninja_suffix}")
         file(DOWNLOAD "${ninja_url}" ./ninja.zip SHOW_PROGRESS)
@@ -207,8 +207,8 @@ jobs:
       if: matrix.config.artifact != 0
       shell: bash
       run: |
-          if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-            sudo cpack ${{ matrix.config.cpack_flags }}
+          # if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
+          #   sudo cpack ${{ matrix.config.cpack_flags }}
           elif [ "$RUNNER_OS" == "Windows" ]; then
             cpack ${{ matrix.config.cpack_flags }}
           fi
@@ -262,10 +262,10 @@ jobs:
             name: "Ubuntu Latest GCC", dlartifact: "Linux.tar.gz", upartifact: "Linux.zip",
             os: ubuntu-latest
           }
-        - {
-            name: "macOS Latest Clang", dlartifact: "macOS.dmg", upartifact: "macOS.zip",
-            os: ubuntu-latest
-          }
+        # - {
+        #     name: "macOS Latest Clang", dlartifact: "macOS.dmg", upartifact: "macOS.zip",
+        #     os: ubuntu-latest
+        #   }
     needs: release
 
     steps:
