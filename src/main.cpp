@@ -96,7 +96,7 @@ int main(int argc, char *argv[])
     int port;
     if (vm.count("port") == 0)
     {
-        port = 8000;
+        port = 8899;
     }
     else
     {
@@ -143,6 +143,7 @@ int main(int argc, char *argv[])
     std::optional<cpr::Url> nodeurl;
     std::optional<cpr::Url> unauthnodeurl;
     net::io_context ioc;
+
     if (vm.count("node") == 0 && vm.count("ws-node") != 0) {
         // create router
         node = vm["ws-node"].as<std::string>();
@@ -173,7 +174,7 @@ int main(int argc, char *argv[])
 
     auto jwt = read_jwt(vm["jwt-secret"].as<std::string>());
 
-    // setup rocksdb
+    // setup leveldb
     leveldb::Options options;
     options.create_if_missing = true;
     options.block_cache = leveldb::NewLRUCache(3145728); // 3MB cache
@@ -199,7 +200,6 @@ int main(int argc, char *argv[])
     signal(SIGTERM, signal_handler);
     spdlog::debug("Signal handler set.");
 
-    // last legitamate fcU (request by CL)
     std::string last_legitimate_fcu;
 
     // route for the canonical CL
@@ -220,8 +220,8 @@ int main(int argc, char *argv[])
                             // if this CL is a CL that also serves a validator, at some point it will send a fcU that has a payloadAttributes field
                             // and this would brick the untrusted CLs
                             std::string temppayloadAttributes = j["params"][1]["payloadAttributes"].get<std::string>();
+                            last_legitimate_fcu = j.dump();
                             j.erase("payloadAttributes");
-                            last_legitimate_fcu = body; // save the last legitamate fcU with the payloadAttributes field
                             j["params"][1]["payloadAttributes"] = temppayloadAttributes;
                         }
 
@@ -236,13 +236,13 @@ int main(int argc, char *argv[])
                             leveldb::Status s = db->Put(leveldb::WriteOptions(), headblockhash, jeditid.dump()); // store the response in the database to later be used by the client CLs
                             if (!s.ok())
                             {
-                                spdlog::error("Failed to store response for block hash: {} in database: {}", headblockhash, s.ToString());
+                                spdlog::error("Failed to store response for fcU hash: {} in database: {}", headblockhash, s.ToString());
                                 response->write(status_code_to_enum[500], "Failed to store response in database");
                                 return;
                             }
                             else
                             {
-                                spdlog::debug("Stored response for block hash: {} in database", headblockhash);
+                                spdlog::debug("Stored response for fcU hash: {} in database", headblockhash);
                             }
                             response->write(status_code_to_enum[200], resp);
                             return;
@@ -256,6 +256,18 @@ int main(int argc, char *argv[])
                     }
                     else if (j["method"] == "engine_newPayloadV1" || j["method"] == "engine_newPayloadV2")
                     {
+                        // we could've already stored the response for this block hash in the database from the non-canonical CL
+                        std::string dbrequest = std::string("nP") + j["params"][0]["blockHash"].get<std::string>();
+                        std::string dbresponse;
+                        leveldb::Status s = db->Get(leveldb::ReadOptions(), dbrequest, &dbresponse);
+                        if (s.ok())
+                        {
+                            spdlog::debug("Found response for newPadload hash: {} in database", dbrequest);
+                            response->write(status_code_to_enum[200], dbresponse);
+                            return;
+                        }
+                        // if we dont find anything keep going none of the non-canonical CLs have made a request for this new payload yet
+
                         // make request to node
                         std::string resp = make_request(node, noderouter, j, request->header);
 
@@ -263,16 +275,17 @@ int main(int argc, char *argv[])
                         {
                             json jeditid = json::parse(resp);
                             jeditid.erase("id"); // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
-                            leveldb::Status s = db->Put(leveldb::WriteOptions(), j["params"][0]["blockHash"].get<std::string>(), jeditid.dump()); // store the response in the database to later be used by the client CLs
+                            std::string dbrequest = std::string("nP") + j["params"][0]["blockHash"].get<std::string>();
+                            leveldb::Status s = db->Put(leveldb::WriteOptions(), dbrequest, jeditid.dump()); // store the response in the database to later be used by the client CLs
                             if (!s.ok())
                             {
-                                spdlog::error("Failed to store response for block hash: {} in database: {}", j["params"][0]["blockHash"].get<std::string>(), s.ToString());
-                                response->write(status_code_to_enum[500], "Failed to store response in database");
+                                spdlog::error("Failed to store response for newPayload hash: {} in database: {}", dbrequest, s.ToString());
+                                response->write(status_code_to_enum[500], "Failed to store response in database for newPayload");
                                 return;
                             }
                             else
                             {
-                                spdlog::debug("Stored response for block hash: {} in database", j["params"][0]["blockHash"].get<std::string>());
+                                spdlog::debug("Stored response for newPayload hash: {} in database", dbrequest);
                             }
                             response->write(status_code_to_enum[200], resp);
                             return;
@@ -397,7 +410,7 @@ int main(int argc, char *argv[])
                             leveldb::Status s = db->Get(leveldb::ReadOptions(), headblockhash, &responsestr); // get the response from the database
                             if (s.ok())
                             {
-                                spdlog::debug("Found response in database, sending it to the client CL. Request ID: {}", j["id"]);
+                                spdlog::debug("Found response in database for fcU hash: {}", headblockhash);
                                 // load the response into a json object, and add the requests' id to it
                                 json jresponse = json::parse(responsestr);
                                 jresponse["id"] = j["id"];
@@ -406,12 +419,12 @@ int main(int argc, char *argv[])
                             }
                             else
                             {
-                                spdlog::error("Failed to get block {}: {}", headblockhash, s.ToString());
+                                spdlog::error("Failed to get block for fcU {}: {}", headblockhash, s.ToString());
                                 std::this_thread::sleep_for(std::chrono::milliseconds(150));
                                 continue;
                             }
                         }
-                        spdlog::error("Failed to get block {} from database after 5 tries", headblockhash);
+                        spdlog::error("Failed to get block {} from database for fcU after 5 tries", headblockhash);
                         json jresponse = json::parse("{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}");
                         jresponse["id"] = j["id"];
                         response->write(status_code_to_enum[200], jresponse.dump());
@@ -423,7 +436,7 @@ int main(int argc, char *argv[])
                         leveldb::Status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
                         if (s.ok())
                         {
-                            spdlog::debug("Found exchangeconfig in database, sending it to the client CL. Request ID {}", j["id"]);
+                            spdlog::debug("Found exchangeconfig in database");
                             // load the response into a json object, and add the requests' id to it
                             json jresponse = json::parse(exchangeconfig);
                             jresponse["id"] = j["id"];
@@ -439,16 +452,16 @@ int main(int argc, char *argv[])
                     }
                     else if (j["method"] == "engine_newPayloadV1" || j["method"] == "engine_newPayloadV2") {
                         // get from db or make a request to auth node if not found
-                        spdlog::debug("engine_newPayload called by non-canonical CL, getting response from database or auth node");
-                        std::string blockhash = j["params"][0]["blockHash"].get<std::string>();
                         std::string responsestr;
-                        leveldb::Status s = db->Get(leveldb::ReadOptions(), blockhash, &responsestr); // get the response from the database
+                        std::string dbrequest = std::string("nP") + j["params"][0]["blockHash"].get<std::string>();
+                        leveldb::Status s = db->Get(leveldb::ReadOptions(), dbrequest, &responsestr); // get the response from the database
                         
                         if (s.ok() && !responsestr.empty()) {
                             // load the response into a json object, and add the requests' id to it
                             json jresponse = json::parse(responsestr);
                             jresponse["id"] = j["id"];
                             response->write(status_code_to_enum[200], jresponse.dump()); // send the response to the client CL
+                            spdlog::debug("Found response in database for newPayload block {} in database.", dbrequest);
                         }
                         else {
                             // forward the request to the auth node
@@ -456,6 +469,19 @@ int main(int argc, char *argv[])
                             defaultheadercopy.emplace("Authorization", "Bearer " + create_bearer_jwt(jwt));
                             std::string resp = make_request(node, noderouter, j, defaultheadercopy);
                             response->write(status_code_to_enum[200], resp);
+                            spdlog::debug("Didn't find response in database for newPayload block {}, forwarding request to node.", dbrequest);
+                            // if the request was successful, add the response to the database
+                            json jresponse = json::parse(resp);
+                            if (jresponse["result"]["status"] == "VALID") {
+                                leveldb::Status s = db->Put(leveldb::WriteOptions(), dbrequest, resp);
+                                if (!s.ok()) {
+                                    spdlog::error("Failed to add response to database for block {}: {}", dbrequest, s.ToString());
+                                }
+                                else {
+                                    spdlog::debug("Added response to database for block {}", dbrequest);
+                                }
+
+                            }
                         }
                     }
 
@@ -464,7 +490,7 @@ int main(int argc, char *argv[])
                     j["method"] == "engine_exchangeCapabilities") // safe to pass to the EE
                     {
                         // we can just forward this request to the node
-                        spdlog::debug("{}} called by non-canonical CL, forwarding to node", j["method"]);
+                        spdlog::debug("{} called by non-canonical CL, forwarding to node", j["method"]);
 
                         auto defaultheadercopy = request->header;
                         defaultheadercopy.emplace("Authorization", "Bearer " + create_bearer_jwt(jwt));
