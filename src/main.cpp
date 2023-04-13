@@ -234,7 +234,16 @@ int main(int argc, char *argv[])
                             json jeditid = json::parse(resp);
                             jeditid.erase("id");                                                                 // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
                             leveldb::Status s = db->Put(leveldb::WriteOptions(), headblockhash, jeditid.dump()); // store the response in the database to later be used by the client CLs
-                            spdlog::trace("Put response in database, status {}", s.ToString());
+                            if (!s.ok())
+                            {
+                                spdlog::error("Failed to store response for block hash: {} in database: {}", headblockhash, s.ToString());
+                                response->write(status_code_to_enum[500], "Failed to store response in database");
+                                return;
+                            }
+                            else
+                            {
+                                spdlog::debug("Stored response for block hash: {} in database", headblockhash);
+                            }
                             response->write(status_code_to_enum[200], resp);
                             return;
                         }
@@ -255,39 +264,18 @@ int main(int argc, char *argv[])
                             json jeditid = json::parse(resp);
                             jeditid.erase("id"); // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
                             leveldb::Status s = db->Put(leveldb::WriteOptions(), j["params"][0]["blockHash"].get<std::string>(), jeditid.dump()); // store the response in the database to later be used by the client CLs
-                            spdlog::trace("Put response in database, status {}", s.ToString());
-                            response->write(status_code_to_enum[200], resp);
-                            return;
-                        }
-                        else
-                        {
-                            spdlog::error("Failed to make request to canonical node");
-                            response->write(status_code_to_enum[500], "Failed to make request to canonical node");
-                            return;
-                        }
-                    }
-                    else if (j["method"] == "engine_getPayloadV1" || j["method"] == "engine_getPayloadV2")
-                    {
-                        // make request to node
-                        std::string resp = make_request(node, noderouter, j, request->header);
-
-                        if (!resp.empty())
-                        {
-                            json jeditid = json::parse(resp);
-                            jeditid.erase("id"); // if the CL and untrusted CL make requests with different IDs, it will not find it in the db
-                            leveldb::Status s = db->Put(leveldb::WriteOptions(), j["params"][0]["blockHash"].get<std::string>(), jeditid.dump()); // store the response in the database to later be used by the client CLs
-                            if (s.ok())
+                            if (!s.ok())
                             {
-                                spdlog::trace("Put response in database, status {}", s.ToString());
-                                response->write(status_code_to_enum[200], resp);
+                                spdlog::error("Failed to store response for block hash: {} in database: {}", j["params"][0]["blockHash"].get<std::string>(), s.ToString());
+                                response->write(status_code_to_enum[500], "Failed to store response in database");
                                 return;
                             }
                             else
                             {
-                                spdlog::error("Failed to put response in database, status {}", s.ToString());
-                                response->write(status_code_to_enum[500], "Failed to put response in database");
-                                return;
+                                spdlog::debug("Stored response for block hash: {} in database", j["params"][0]["blockHash"].get<std::string>());
                             }
+                            response->write(status_code_to_enum[200], resp);
+                            return;
                         }
                         else
                         {
@@ -312,12 +300,12 @@ int main(int argc, char *argv[])
                             batch.Delete("exchangeconfig");                 // delete the old exchangeconfig from the database
                             batch.Put("exchangeconfig", jeditid.dump());    // put the new exchangeconfig in the database
                             s = db->Write(leveldb::WriteOptions(), &batch); // write the batch to the database
-                            spdlog::trace("Overwrote exchangeconfig to database, status {}", s.ToString());
+                            spdlog::debug("Overwrote exchangeconfig to database, status {}", s.ToString());
                         }
                         else
                         {
                             s = db->Put(leveldb::WriteOptions(), "exchangeconfig", jeditid.dump()); // put the new exchangeconfig in the database
-                            spdlog::trace("Wrote new exchangeconfig to database, status {}", s.ToString());
+                            spdlog::debug("Wrote new exchangeconfig to database, status {}", s.ToString());
                         }
                         if (s.ok())
                         {
@@ -362,7 +350,7 @@ int main(int argc, char *argv[])
                 {
                     if (j["method"] == "engine_forkchoiceUpdatedV1" || j["method"] == "engine_forkchoiceUpdatedV2")
                     {
-                        spdlog::trace("engine_forkchoiceUpdated called by client CL");
+                        spdlog::debug("engine_forkchoiceUpdated called by client CL");
                         if (j["params"][1]["payloadAttributes"] != std::nullptr_t())
                         {
                             spdlog::trace("Client CL sent a fcU with payloadAttributes, wants to build a block");
@@ -395,7 +383,7 @@ int main(int argc, char *argv[])
                                 return;
                             }
                             else {
-                                spdlog::trace("Client CL sent a fcU with payloadAttributes, but it's not equal to the last legitamate fcU, so we can't forward it to the node");
+                                spdlog::debug("Client CL sent a fcU with payloadAttributes, but it's not equal to the last legitamate fcU, so we can't forward it to the node");
                                 response->write(status_code_to_enum[200], "{\"error\":{\"code\":-32000,\"message\":\"Cannot let you build a block with an invalid fcU\"}}");
                                 return;
                             }
@@ -409,7 +397,7 @@ int main(int argc, char *argv[])
                             leveldb::Status s = db->Get(leveldb::ReadOptions(), headblockhash, &responsestr); // get the response from the database
                             if (s.ok())
                             {
-                                spdlog::trace("Found response in database, sending it to the client CL. Request ID: {}", j["id"]);
+                                spdlog::debug("Found response in database, sending it to the client CL. Request ID: {}", j["id"]);
                                 // load the response into a json object, and add the requests' id to it
                                 json jresponse = json::parse(responsestr);
                                 jresponse["id"] = j["id"];
@@ -418,7 +406,7 @@ int main(int argc, char *argv[])
                             }
                             else
                             {
-                                spdlog::debug("Failed to get block {}: {}", headblockhash, s.ToString());
+                                spdlog::error("Failed to get block {}: {}", headblockhash, s.ToString());
                                 std::this_thread::sleep_for(std::chrono::milliseconds(150));
                                 continue;
                             }
@@ -435,7 +423,7 @@ int main(int argc, char *argv[])
                         leveldb::Status s = db->Get(leveldb::ReadOptions(), "exchangeconfig", &exchangeconfig); // get the exchangeconfig from the database
                         if (s.ok())
                         {
-                            spdlog::trace("Found exchangeconfig in database, sending it to the client CL. Request ID {}", j["id"]);
+                            spdlog::debug("Found exchangeconfig in database, sending it to the client CL. Request ID {}", j["id"]);
                             // load the response into a json object, and add the requests' id to it
                             json jresponse = json::parse(exchangeconfig);
                             jresponse["id"] = j["id"];
@@ -451,6 +439,7 @@ int main(int argc, char *argv[])
                     }
                     else if (j["method"] == "engine_newPayloadV1" || j["method"] == "engine_newPayloadV2") {
                         // get from db or make a request to auth node if not found
+                        spdlog::debug("engine_newPayload called by non-canonical CL, getting response from database or auth node");
                         std::string blockhash = j["params"][0]["blockHash"].get<std::string>();
                         std::string responsestr;
                         leveldb::Status s = db->Get(leveldb::ReadOptions(), blockhash, &responsestr); // get the response from the database
@@ -470,28 +459,18 @@ int main(int argc, char *argv[])
                         }
                     }
 
-                    else if (j["method"] == "engine_getPayloadV1" || j["method"] == "engine_getPayloadV2") // safe to pass to the EE
+                    else if (j["method"] == "engine_getPayloadV1" || j["method"] == "engine_getPayloadV2" ||
+                    j["method"] == "engine_getPayloadBodiesByHashV1" || j["method"] == "engine_getPayloadBodiesByRangeV1" ||
+                    j["method"] == "engine_exchangeCapabilities") // safe to pass to the EE
                     {
                         // we can just forward this request to the node
-                        spdlog::trace("engine_getPayloadV1 or engine_newPayloadV1 called by client CL, forwarding to node");
+                        spdlog::debug("{}} called by non-canonical CL, forwarding to node", j["method"]);
 
                         auto defaultheadercopy = request->header;
                         defaultheadercopy.emplace("Authorization", "Bearer " + create_bearer_jwt(jwt));
                         std::string resp = make_request(node, noderouter, j, defaultheadercopy);
                         response->write(status_code_to_enum[200], resp);
                         return;
-                    }
-                    else if (j["method"] == "engine_getPayloadBodiesByHashV1" || j["method"] == "engine_getPayloadBodiesByRangeV1")
-                    {
-                        // this is safe to pass to the EE
-                        spdlog::trace("engine_getPayloadBodiesByHashV1 or engine_getPayloadBodiesByRangeV1 called by client CL, forwarding to node");
-
-                        auto defaultheadercopy = request->header;
-                        defaultheadercopy.emplace("Authorization", "Bearer " + create_bearer_jwt(jwt));
-                        std::string resp = make_request(node, noderouter, j, defaultheadercopy);
-                        response->write(status_code_to_enum[200], resp);
-                        return;
-
                     }
                     else
                     {
