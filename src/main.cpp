@@ -482,6 +482,13 @@ int main(int argc, char *argv[])
                                 }
 
                             }
+                            else
+                            {
+                                spdlog::debug("Response was not valid, not adding to database, returning syncing to client CL");
+                                json jresponse = json::parse("{\"jsonrpc\":\"2.0\",\"id\":{},\"result\":{\"payloadStatus\":{\"status\":\"SYNCING\",\"latestValidHash\":null,\"validationError\":null},\"payloadId\":null}}");
+                                jresponse["id"] = j["id"];
+                                response->write(status_code_to_enum[200], jresponse.dump());
+                            }
                         }
                     }
 
