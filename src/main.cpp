@@ -345,7 +345,6 @@ int main(int argc, char *argv[])
                 else
                 {
                     // must be a normal request, just forward it to the unauth node
-                    spdlog::debug("Normal request called by canonical CL");
                     std::string resp = make_request(unauthnode, unauthnoderouter, j, request->header);
                     response->write(status_code_to_enum[200], resp);
                 } });
@@ -507,7 +506,7 @@ int main(int argc, char *argv[])
                     }
                     else
                     {
-                        spdlog::error("Method {} not supported yet.", j["method"]);
+                        spdlog::error("non-canonical cl called unsuppored {} function", j["method"]);
                         response->write(status_code_to_enum[200], "{\"error\":{\"code\":-32000,\"message\":\"Method not supported yet\"}}");
                         return;
                     }
