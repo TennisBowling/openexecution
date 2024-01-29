@@ -258,18 +258,27 @@ pub struct forkchoiceUpdatedResponse {
     pub payload_id: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase")))]
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase", untagged)]
 pub struct newPayloadRequest {
-    pub payload_status: PayloadStatus,
-    pub payload_id: Option<String>,
+    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]
+    pub execution_payload: ExecutionPayloadV1,
+    #[superstruct(only(V2), partial_getter(rename = "execution_payload_v3"))]
+    pub execution_payload: ExecutionPayloadV2,
+    #[superstruct(only(V3), partial_getter(rename = "execution_payload_v3"))]
+    pub execution_payload: ExecutionPayloadV3,
+    #[superstruct(only(V3))]
+    pub versioned_hashes: Vec<H256>,
+    #[superstruct(only(V3))]
+    pub parent_beacon_block_root: H256,
 }
 
 #[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase")))]
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", untagged)]
 pub struct getPayloadResponse {
-    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]       // V1, V2
+    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]
     pub execution_payload: ExecutionPayloadV1,
     #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
     pub execution_payload: ExecutionPayloadV2,
