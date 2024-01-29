@@ -44,3 +44,8 @@ target/
 *.exe
 *.out
 *.app
+
+
+# Added by cargo
+
+/target

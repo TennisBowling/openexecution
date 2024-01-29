@@ -1,0 +1,31 @@
+[package]
+name = "openexecution"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = { version = "0.7.2" }
+reqwest = { version = "0.11.22", features = ["json"] }
+tokio = { version = "1.35", features = ["full"] }
+tracing = "0.1.4"
+tracing-subscriber = "0.3.18"
+futures = "0.3.29"
+jsonwebtoken = "9.2.0"
+clap = "2.33.3"
+serde_json = "1.0.108"
+serde = {version = "1.0.193", features = ["derive"] }
+hash-db = "0.15.2"
+ethers-core = "1.0.2"
+keccak-hash = "0.10.0"
+hash256-std-hasher = "0.15.2"
+metastruct = "0.1.0"
+ethereum-types = "0.14.1"
+array-bytes = "6.1.0"
+ethereum_serde_utils = "0.5.1"
+ssz_types = "0.6.0"
+superstruct = "0.7.0"
+hex = "0.4.3"
+chrono = "0.4.31"
+lru = "0.12.1"
