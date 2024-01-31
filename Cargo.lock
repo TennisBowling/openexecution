@@ -1460,6 +1460,7 @@ dependencies = [
  "lru",
  "metastruct",
  "reqwest",
+ "rlp",
  "serde",
  "serde_json",
  "ssz_types",
@@ -1467,6 +1468,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "triehash",
 ]
 
 [[package]]
@@ -2560,6 +2562,16 @@ dependencies = [
  "ethereum-types",
  "ethereum_hashing",
  "smallvec",
+]
+
+[[package]]
+name = "triehash"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1631b201eb031b563d2e85ca18ec8092508e262a3196ce9bd10a67ec87b9f5c"
+dependencies = [
+ "hash-db",
+ "rlp",
 ]
 
 [[package]]

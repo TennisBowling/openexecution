@@ -1,4 +1,5 @@
 mod types;
+mod keccak;
 mod verify_hash;
 use std::error::Error;
 use std::{sync::Arc, time::Duration};
@@ -28,9 +29,104 @@ fn make_jwt(jwt_secret: &Arc<jsonwebtoken::EncodingKey>, timestamp: &i64) -> Str
     .unwrap()
 }
 
+fn new_payload_serializer(mut request: RpcRequest) -> Result<NewPayloadRequest, RpcErrorResponse> {
+
+    let params = match request.params.as_array_mut() {
+        Some(params_vec) => params_vec,
+        None => {
+            tracing::error!("Could not serialize newPayload's params into a vec.");
+            return Err(RpcErrorResponse::new(json!("Could not serialize newPayload's params into a vec."), request.id));
+        },
+    };
+
+    if request.method == EngineMethod::engine_newPayloadV3 {
+        // params will have 3 fields: [ExecutionPayloadV3, expectedBlobVersionedHashes, ParentBeaconBlockRoot]
+        if params.len() != 3 {
+            tracing::error!("newPayloadV3's params did not have 3 elements.");
+            return Err(RpcErrorResponse::new(json!("newPayloadV3's params did not have 3 elements."), request.id));
+        }
+
+        let execution_payload: ExecutionPayload = match serde_json::from_value(params[0].take()) {     // direct getting is safe here since we checked that we have least 3 elements
+            Ok(execution_payload) => execution_payload,
+            Err(e) => {
+                tracing::error!("Could not serialize ExecutionPayload from newPayloadV3: {}", e);
+                return Err(RpcErrorResponse::new(json!("Could not serialize ExecutionPayload."), request.id));
+            },
+        };
+
+        let versioned_hashes: Vec<H256> = match serde_json::from_value(params[1].take()) {
+            Ok(versioned_hashes) => versioned_hashes,
+            Err(e) => {
+                tracing::error!("Could not serialize VersionedHashes from newPayloadV3: {}", e);
+                return Err(RpcErrorResponse::new(json!("Could not serialize Versioned Hashes."), request.id));
+            }
+        };
+
+        let parent_beacon_block_root: H256 = match serde_json::from_value(params[2].take()) {
+            Ok(parent_beacon_block_root) => parent_beacon_block_root,
+            Err(e) => {
+                tracing::error!("Could not serialize ParentBeaconBlockRoot from newPayloadV3: {}", e);
+                return Err(RpcErrorResponse::new(json!("Could not serialize ParentBeaconBlockRoot."), request.id));
+            }
+        };
+
+        return Ok(NewPayloadRequest{ execution_payload, expected_blob_versioned_hashes: Some(versioned_hashes), parent_beacon_block_root: Some(parent_beacon_block_root) });
+    }
+
+    // parmas will just have [ExecutionPayloadV1 | ExecutionPayloadV2]
+
+    if params.len() != 1 {
+        tracing::error!("newPayloadV1|2's params did not have anything or something went wrong (newPayloadV1|2 called with more than just 1 param (ExecutionPayload).");
+        return Err(RpcErrorResponse::new(json!("newPayloadV1|2's params did not have anything."), request.id));
+    }
+
+    let execution_payload: ExecutionPayload = match serde_json::from_value(params[0].take()) {
+        Ok(execution_payload) => execution_payload,
+        Err(e) => {
+            tracing::error!("Could not serialize ExecutionPayload from newPayloadV1|2: {}", e);
+            return Err(RpcErrorResponse::new(json!("Could not serialize ExecutionPayload."), request.id));
+        },
+    };
+
+    Ok(NewPayloadRequest { execution_payload, expected_blob_versioned_hashes: None, parent_beacon_block_root: None })
+
+}
+
+fn fcu_serializer(mut request: RpcRequest) -> Result<ForkchoiceUpdatedRequest, RpcErrorResponse> {      // just extract forkchoicestate
+    let params = match request.params.as_array_mut() {
+        Some(params_vec) => params_vec,
+        None => {
+            tracing::error!("Could not serialize fcU's params into a vec.");
+            return Err(RpcErrorResponse::new(json!("Could not serialize fcU's params into a vec."), request.id));
+        },
+    };
+
+    if params.len() < 1 {
+        tracing::error!("CL fcU request had less than 1 param.");
+        return Err(RpcErrorResponse::new(json!("fcU request had less than 1 param."), request.id));
+    }
+
+    // [forkchoiceState, Option<payloadAttributes>]
+
+    let fork_choice_state: ForkchoiceState = match serde_json::from_value(params[0].take()) {
+        Ok(fork_choice_state) => fork_choice_state,
+        Err(e) => {
+            tracing::error!("Could not serialize ForkchoiceState from fcU: {}", e);
+            return Err(RpcErrorResponse::new(json!("Could not serialize ForkchoiceState."), request.id));
+        }
+    };
+
+    if params.len() == 2 {
+        return Ok(ForkchoiceUpdatedRequest{ fork_choice_state, payload_attributes: Some(params[1].take()) });
+    }
+
+    Ok(ForkchoiceUpdatedRequest { fork_choice_state, payload_attributes: None })
+
+}
+
 fn parse_result_as_value(resp: &str) -> Result<serde_json::Value, ParseError> {
     // todo: maybe serialize directly into T?
-    let j = match serde_json::from_str::<serde_json::Value>(resp) {
+    let mut j = match serde_json::from_str::<serde_json::Value>(resp) {
         Ok(j) => j,
         Err(e) => {
             tracing::error!("Error deserializing response: {}", e);
@@ -43,7 +139,7 @@ fn parse_result_as_value(resp: &str) -> Result<serde_json::Value, ParseError> {
         return Err(ParseError::ElError);
     }
 
-    let result = match j.get("result") {
+    let result = match j.get_mut("result") {
         Some(result) => result,
         None => {
             tracing::error!("Response has no result field");
@@ -155,44 +251,34 @@ async fn canonical_newpayload(request: RpcRequest, state: Arc<State>) -> Result<
     // send req to node
     let payloadstatus_result: PayloadStatus = make_auth_request_serialize(&state.auth_node, &request).await.map_err(|e| RpcErrorResponse::new(json!(format!("Error querying EL: {:?}", e)), request.id))?;
 
-    let block_hash = match serde_json::from_slice::<ExecutionPayload>(&request.as_bytes()) {
-        Ok(request_payload) => request_payload,
-        Err(e) => {
-            tracing::error!("Failed to serialize canonical CL newPayload request into ExecutionPayload: {:?}", e);
-            return Err(RpcErrorResponse::new(json!(format!("Failed to serialize canonical CL newPayload request into ExecutionPayload: {:?}", e)), request.id));
-        }
-    }.block_hash();
+    let id = request.id;
+    let block_hash = new_payload_serializer(request)?.execution_payload.block_hash();
 
     state.new_payload_cache.write().await.push(block_hash, payloadstatus_result.clone());
     
-    Ok(RpcResponse::new(json!(payloadstatus_result), request.id))
+    Ok(RpcResponse::new(json!(payloadstatus_result), id))
 }
 
 
 async fn client_newpayload(request: RpcRequest, state: Arc<State>) -> Result<RpcResponse, RpcErrorResponse> {
 
-    let request_execution_payload = match serde_json::from_slice::<ExecutionPayload>(&request.as_bytes()) {
-        Ok(request_payload) => request_payload,
-        Err(e) => {
-            tracing::error!("Failed to serialize client CL newPayload request into ExecutionPayload: {:?}", e);
-            return Err(RpcErrorResponse::new(json!(format!("Failed to serialize client CL newPayload request into ExecutionPayload: {:?}", e)), request.id));
-        }
-    };
+    let id = request.id;
+    let request_execution_payload = new_payload_serializer(request)?;
 
-    match get_new_payload_with_retry(state, &request_execution_payload.block_hash()).await {
+    match get_new_payload_with_retry(state, &request_execution_payload.execution_payload.block_hash()).await {
         Some(payload_status) => {
-            Ok(RpcResponse::new(json!(payload_status), request.id))
+            Ok(RpcResponse::new(json!(payload_status), id))
         }
         None => {
             // check if hash is OK
-            match verify_payload_block_hash(&request_execution_payload) {
+            match verify_payload_block_hash(&request_execution_payload.execution_payload) {
                 Ok(()) => {     // hash check is fine, return SYNCING
                     tracing::warn!("Client newPayload: Did not find in cache, returning SYNCING");
-                    Ok(RpcResponse::new(json!(PayloadStatus::new_syncing()), request.id))
+                    Ok(RpcResponse::new(json!(PayloadStatus::new_syncing()), id))
                 },
                 Err(e) => {
                     tracing::warn!("Client newPayload: Did not find in cache and payload block hash verification failed: {}", e);
-                    Err(RpcErrorResponse::new(json!("Payload block hash check failed"), request.id))
+                    Err(RpcErrorResponse::new(json!("Payload block hash check failed"), id))
                 }
             }
         }
@@ -201,38 +287,28 @@ async fn client_newpayload(request: RpcRequest, state: Arc<State>) -> Result<Rpc
 
 async fn canonical_fcu(request: RpcRequest, state: Arc<State>) -> Result<RpcResponse, RpcErrorResponse> {
     // send req to node
-    let fcu_result: forkchoiceUpdatedResponse = make_auth_request_serialize(&state.auth_node, &request).await.map_err(|e| RpcErrorResponse::new(json!(format!("Error querying EL: {:?}", e)), request.id))?;
+    let fcu_result: ForkchoiceUpdatedResponse = make_auth_request_serialize(&state.auth_node, &request).await.map_err(|e| RpcErrorResponse::new(json!(format!("Error querying EL: {:?}", e)), request.id))?;
 
-    let forkchoice_state = match serde_json::from_slice::<forkchoiceUpdatedRequest>(&request.as_bytes()) {  // serialize CL request to extract forkchoice_state
-        Ok(request_payload) => request_payload,                                                    // which will be the key in the fcu_cache
-        Err(e) => {
-            tracing::error!("Failed to serialize canonical CL fcU request into forkchoiceUpdatedRequest: {:?}", e);
-            return Err(RpcErrorResponse::new(json!(format!("Failed to serialize canonical CL fcU request into forkchoiceUpdatedRequest: {:?}", e)), request.id));
-        }
-    }.fork_choice_state;
+    let id = request.id;
+    let forkchoice_state = fcu_serializer(request)?.fork_choice_state;
 
     state.fcu_cache.write().await.push(forkchoice_state, fcu_result.payload_status.clone());
     
-    Ok(RpcResponse::new(json!(fcu_result), request.id))
+    Ok(RpcResponse::new(json!(fcu_result), id))
 }
 
-async fn client_fcu(request: RpcRequest, state: Arc<State>) -> Result<RpcResponse, RpcErrorResponse> {
+async fn client_fcu(request: RpcRequest, state: Arc<State>) -> Result<RpcResponse, RpcErrorResponse> {      // handle block building
 
-    let forkchoice_state = match serde_json::from_slice::<forkchoiceUpdatedRequest>(&request.as_bytes()) {
-        Ok(request_payload) => request_payload,                                                    
-        Err(e) => {
-            tracing::error!("Failed to serialize client CL fcU request into forkchoiceUpdatedRequest: {:?}", e);
-            return Err(RpcErrorResponse::new(json!(format!("Failed to serialize client CL fcU request into forkchoiceUpdatedRequest: {:?}", e)), request.id));
-        }
-    }.fork_choice_state;
+    let id = request.id;
+    let forkchoice_state = fcu_serializer(request)?.fork_choice_state;
 
     match get_fcu_with_retry(state, &forkchoice_state).await {
         Some(payload_status) => {
-            Ok(RpcResponse::new(json!(payload_status), request.id))
+            Ok(RpcResponse::new(json!(payload_status), id))
         }
         None => {
             tracing::warn!("Client newPayload: Did not find in cache, returning SYNCING");
-            Ok(RpcResponse::new(json!(PayloadStatus::new_syncing()), request.id))
+            Ok(RpcResponse::new(json!(PayloadStatus::new_syncing()), id))
         }
     }
 }
@@ -356,7 +432,7 @@ async fn main() {
 
     
 
-    let app = Router::new()
+    /*let app = Router::new()
         .route("/", axum::routing::post(route_all))
         .layer(Extension(router.clone()))
         .layer(DefaultBodyLimit::disable()); // no body limit since some requests can be quite large
@@ -371,5 +447,5 @@ async fn main() {
         }
     };
     tracing::info!("Listening on {}", addr);
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await.unwrap();*/
 }

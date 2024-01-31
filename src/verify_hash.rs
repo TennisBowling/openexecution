@@ -22,10 +22,8 @@ use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use rlp::RlpStream;
 use std::error::Error;
 use triehash::ordered_trie_root;
-use crate::keccak::{keccak256, KeccakHasher};
-use crate::types::*;
-
-use crate::ExecutionPayload;
+use crate::keccak::*;
+use crate::*;
 
 // Thank you lighthouse team! https://github.com/sigp/lighthouse/blob/stable/beacon_node/execution_layer/src/block_hash.rs#L50-L59
 /// RLP encode an execution block header.
