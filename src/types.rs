@@ -191,7 +191,6 @@ pub enum EngineMethod {
     engine_newPayloadV1,
     engine_forkchoiceUpdatedV1,
     engine_getPayloadV1,
-    //engine_exchangeTransitionConfigurationV1,
     engine_exchangeCapabilities,
     engine_newPayloadV2,
     engine_forkchoiceUpdatedV2,
@@ -203,9 +202,48 @@ pub enum EngineMethod {
     engine_getPayloadV3,
 }
 
+#[derive(Debug)]
+pub enum MethodSerializeError {
+    CouldNotSerialize,
+    NotEngineMethod,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
-pub struct RpcRequest {
+pub struct EngineRpcRequest {
     pub method: EngineMethod,
+    pub params: serde_json::Value,
+    pub id: u64,
+    // no jsonrpc since always derived from GeneralRpcRequest
+}
+
+impl EngineRpcRequest {
+    pub fn from_general(general_request: GeneralRpcRequest) -> Result<Self, MethodSerializeError> {
+        if general_request.method.starts_with("engine") {
+            let method: EngineMethod = match serde_json::from_str(&general_request.method) {
+                Ok(method) => method,
+                Err(e) => {
+                    tracing::error!(
+                        "Could not serialize method to EngineMethod: {}",
+                        general_request.method
+                    );
+                    return Err(MethodSerializeError::CouldNotSerialize);
+                }
+            };
+
+            return Ok(EngineRpcRequest {
+                method,
+                params: general_request.params,
+                id: general_request.id,
+            });
+        }
+
+        Err(MethodSerializeError::NotEngineMethod)
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct GeneralRpcRequest {
+    pub method: String,
     pub params: serde_json::Value,
     pub id: u64,
     pub jsonrpc: String,
@@ -247,7 +285,7 @@ impl RpcErrorResponse {
     }
 }
 
-impl RpcRequest {
+impl EngineRpcRequest {
     #[inline]
     pub fn as_bytes(&self) -> Vec<u8> {
         serde_json::to_vec(self).unwrap()

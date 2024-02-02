@@ -1,8 +1,12 @@
 mod keccak;
 mod types;
 mod verify_hash;
+use axum::extract;
+use axum::http::HeaderMap;
 use axum::{self, extract::DefaultBodyLimit, http::StatusCode, response::IntoResponse, Router};
+use axum_extra::TypedHeader;
 use ethereum_types::H256;
+use headers::{authorization::Bearer, Authorization};
 use jsonwebtoken::{self, Validation};
 use serde_json::json;
 use std::any::type_name;
@@ -25,7 +29,9 @@ fn make_jwt(jwt_secret: &Arc<jsonwebtoken::EncodingKey>, timestamp: &i64) -> Str
     .unwrap()
 }
 
-fn new_payload_serializer(mut request: RpcRequest) -> Result<NewPayloadRequest, RpcErrorResponse> {
+fn new_payload_serializer(
+    mut request: EngineRpcRequest,
+) -> Result<NewPayloadRequest, RpcErrorResponse> {
     let params = match request.params.as_array_mut() {
         Some(params_vec) => params_vec,
         None => {
@@ -128,7 +134,9 @@ fn new_payload_serializer(mut request: RpcRequest) -> Result<NewPayloadRequest, 
     })
 }
 
-fn fcu_serializer(mut request: RpcRequest) -> Result<ForkchoiceUpdatedRequest, RpcErrorResponse> {
+fn fcu_serializer(
+    mut request: EngineRpcRequest,
+) -> Result<ForkchoiceUpdatedRequest, RpcErrorResponse> {
     // just extract forkchoicestate
     let params = match request.params.as_array_mut() {
         Some(params_vec) => params_vec,
@@ -220,14 +228,13 @@ fn parse_result<T: serde::de::DeserializeOwned>(resp: &str) -> Result<T, ParseEr
 
 async fn make_auth_request(
     node: &Arc<AuthNode>,
-    payload: &RpcRequest,
+    payload: &EngineRpcRequest,
+    jwt_secret: String,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    let jwt = make_jwt(&node.jwt_secret, &chrono::Utc::now().timestamp());
-
     let res = node
         .client
         .post(&node.url)
-        .header("Authorization", format!("Bearer {}", jwt))
+        .header("Authorization", jwt_secret)
         .header("Content-Type", "application/json")
         .body(payload.as_bytes())
         .send()
@@ -241,14 +248,13 @@ async fn make_auth_request(
 
 async fn make_auth_request_serialize<T: serde::de::DeserializeOwned>(
     node: &Arc<AuthNode>,
-    payload: &RpcRequest,
+    payload: &EngineRpcRequest,
+    jwt_secret: String,
 ) -> Result<T, Box<dyn Error>> {
-    let jwt = make_jwt(&node.jwt_secret, &chrono::Utc::now().timestamp());
-
     let res = node
         .client
         .post(&node.url)
-        .header("Authorization", format!("Bearer {}", jwt))
+        .header("Authorization", jwt_secret)
         .header("Content-Type", "application/json")
         .body(payload.as_bytes())
         .send()
@@ -262,7 +268,7 @@ async fn make_auth_request_serialize<T: serde::de::DeserializeOwned>(
 
 async fn make_unauth_request<T: serde::de::DeserializeOwned>(
     node: &Arc<Node>,
-    payload: &RpcRequest,
+    payload: &GeneralRpcRequest,
 ) -> Result<T, Box<dyn Error>> {
     let res = node
         .client
@@ -308,12 +314,13 @@ async fn get_fcu_with_retry(
 }
 
 async fn canonical_newpayload(
-    request: RpcRequest,
+    request: EngineRpcRequest,
     state: Arc<State>,
+    jwt_secret: String,
 ) -> Result<RpcResponse, RpcErrorResponse> {
     // send req to node
     let payloadstatus_result: PayloadStatus =
-        make_auth_request_serialize(&state.auth_node, &request)
+        make_auth_request_serialize(&state.auth_node, &request, jwt_secret)
             .await
             .map_err(|e| {
                 RpcErrorResponse::new(json!(format!("Error querying EL: {:?}", e)), request.id)
@@ -334,7 +341,7 @@ async fn canonical_newpayload(
 }
 
 async fn client_newpayload(
-    request: RpcRequest,
+    request: EngineRpcRequest,
     state: Arc<State>,
 ) -> Result<RpcResponse, RpcErrorResponse> {
     let id = request.id;
@@ -368,12 +375,13 @@ async fn client_newpayload(
 }
 
 async fn canonical_fcu(
-    request: RpcRequest,
+    request: EngineRpcRequest,
     state: Arc<State>,
+    jwt_secret: String,
 ) -> Result<RpcResponse, RpcErrorResponse> {
     // send req to node
     let fcu_result: ForkchoiceUpdatedResponse =
-        make_auth_request_serialize(&state.auth_node, &request)
+        make_auth_request_serialize(&state.auth_node, &request, jwt_secret)
             .await
             .map_err(|e| {
                 RpcErrorResponse::new(json!(format!("Error querying EL: {:?}", e)), request.id)
@@ -392,7 +400,7 @@ async fn canonical_fcu(
 }
 
 async fn client_fcu(
-    request: RpcRequest,
+    request: EngineRpcRequest,
     state: Arc<State>,
 ) -> Result<RpcResponse, RpcErrorResponse> {
     let id = request.id;
@@ -404,14 +412,18 @@ async fn client_fcu(
             if fcu_request.payload_attributes.is_some() {
                 if payload_status.status == PayloadStatusStatus::Valid {
                     // pass along to EL since the status would be VALID
-                    let fcu_result = make_auth_request(&state.auth_node, &request)
-                        .await
-                        .map_err(|e| {
-                            RpcErrorResponse::new(
-                                json!(format!("Error querying EL: {:?}", e)),
-                                request.id,
-                            )
-                        })?;
+                    let fcu_result = make_auth_request(
+                        &state.auth_node,
+                        &request,
+                        make_jwt(&state.auth_node.jwt_secret, &chrono::Utc::now().timestamp()),
+                    )
+                    .await
+                    .map_err(|e| {
+                        RpcErrorResponse::new(
+                            json!(format!("Error querying EL: {:?}", e)),
+                            request.id,
+                        )
+                    })?;
 
                     return Ok(RpcResponse::new(json!(fcu_result), id));
                 } else {
@@ -430,11 +442,22 @@ async fn client_fcu(
 }
 
 async fn pass_to_auth(
-    request: RpcRequest,
+    request: EngineRpcRequest,
     state: Arc<State>,
+    jwt_secret: Option<String>,
 ) -> Result<RpcResponse, RpcErrorResponse> {
     // pass this to the EL regardless of client or canonical
-    let res = make_auth_request(&state.auth_node, &request).await;
+    let res: Result<serde_json::Value, Box<dyn Error>>;
+    if let Some(jwt_secret) = jwt_secret {
+        res = make_auth_request(&state.auth_node, &request, jwt_secret).await;
+    } else {
+        res = make_auth_request(
+            &state.auth_node,
+            &request,
+            make_jwt(&state.auth_node.jwt_secret, &chrono::Utc::now().timestamp()),
+        )
+        .await;
+    }
 
     match res {
         Ok(el_res) => {
@@ -451,27 +474,34 @@ async fn pass_to_auth(
 }
 
 async fn handle_canonical_engine(
-    request: RpcRequest,
+    request: EngineRpcRequest,
     state: Arc<State>,
+    jwt_secret: String,
 ) -> Result<RpcResponse, RpcErrorResponse> {
     match request.method {
         EngineMethod::engine_forkchoiceUpdatedV1
         | EngineMethod::engine_forkchoiceUpdatedV2
-        | EngineMethod::engine_forkchoiceUpdatedV3 => canonical_fcu(request, state).await,
+        | EngineMethod::engine_forkchoiceUpdatedV3 => {
+            canonical_fcu(request, state, jwt_secret).await
+        }
         EngineMethod::engine_newPayloadV1
         | EngineMethod::engine_newPayloadV2
-        | EngineMethod::engine_newPayloadV3 => canonical_newpayload(request, state).await,
+        | EngineMethod::engine_newPayloadV3 => {
+            canonical_newpayload(request, state, jwt_secret).await
+        }
         EngineMethod::engine_getPayloadV1
         | EngineMethod::engine_getPayloadV2
         | EngineMethod::engine_getPayloadV3
         | EngineMethod::engine_exchangeCapabilities
         | EngineMethod::engine_getPayloadBodiesByHashV1
-        | EngineMethod::engine_getPayloadBodiesByRangeV1 => pass_to_auth(request, state).await,
+        | EngineMethod::engine_getPayloadBodiesByRangeV1 => {
+            pass_to_auth(request, state, Some(jwt_secret)).await
+        }
     }
 }
 
 async fn handle_client_engine(
-    request: RpcRequest,
+    request: EngineRpcRequest,
     state: Arc<State>,
 ) -> Result<RpcResponse, RpcErrorResponse> {
     match request.method {
@@ -486,14 +516,55 @@ async fn handle_client_engine(
         | EngineMethod::engine_getPayloadV3
         | EngineMethod::engine_exchangeCapabilities
         | EngineMethod::engine_getPayloadBodiesByHashV1
-        | EngineMethod::engine_getPayloadBodiesByRangeV1 => pass_to_auth(request, state).await,
+        | EngineMethod::engine_getPayloadBodiesByRangeV1 => {
+            pass_to_auth(request, state, None).await
+        }
     }
 }
 
 async fn handle_generic_request(
-    request: RpcRequest,
+    request: GeneralRpcRequest,
     state: Arc<State>,
 ) -> Result<RpcResponse, RpcErrorResponse> {
+    let res = make_unauth_request(&state.unauth_node, &request).await;
+
+    match res {
+        Ok(el_res) => {
+            return Ok(RpcResponse::new(el_res, request.id));
+        }
+        Err(e) => {
+            tracing::error!("{:?} request failed: {}", request.method, e);
+            return Err(RpcErrorResponse::new(
+                json!(format!("Request failed: {}", e)),
+                request.id,
+            ));
+        }
+    }
+}
+
+async fn canonical_route_all(
+    extract::Json(request): extract::Json<GeneralRpcRequest>,
+    TypedHeader(jwt): TypedHeader<Bearer>,
+    state: Arc<State>,
+) -> Result<RpcResponse, RpcErrorResponse> {
+    let jwt_secret = jwt.token();
+
+    if let Ok(engine_request) = EngineRpcRequest::from_general(request) {
+        handle_canonical_engine(engine_request, state, jwt_secret.to_string()).await
+    }
+    handle_generic_request(request, state).await
+}
+
+async fn client_route_all(
+    is_engine: bool,
+    request: RpcRequest,
+    state: Arc<State>,
+    jwt_secret: String,
+) -> Result<RpcResponse, RpcErrorResponse> {
+    match is_engine {
+        true => handle_client_engine(request, state).await,
+        false => handle_generic_request(request, state).await,
+    }
 }
 
 #[tokio::main]
