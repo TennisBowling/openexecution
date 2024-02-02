@@ -549,15 +549,14 @@ async fn canonical_route_all(
 ) -> Result<RpcResponse, RpcErrorResponse> {
     let jwt_secret = jwt.token();
 
-    if let Ok(engine_request) = EngineRpcRequest::from_general(request) {
-        handle_canonical_engine(engine_request, state, jwt_secret.to_string()).await
+    if let Ok(engine_request) = EngineRpcRequest::from_general(&request) {
+        return handle_canonical_engine(engine_request, state, jwt_secret.to_string()).await;
     }
     handle_generic_request(request, state).await
 }
 
 async fn client_route_all(
     is_engine: bool,
-    request: RpcRequest,
     state: Arc<State>,
     jwt_secret: String,
 ) -> Result<RpcResponse, RpcErrorResponse> {

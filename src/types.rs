@@ -217,7 +217,7 @@ pub struct EngineRpcRequest {
 }
 
 impl EngineRpcRequest {
-    pub fn from_general(general_request: GeneralRpcRequest) -> Result<Self, MethodSerializeError> {
+    pub fn from_general(general_request: &GeneralRpcRequest) -> Result<Self, MethodSerializeError> {
         if general_request.method.starts_with("engine") {
             let method: EngineMethod = match serde_json::from_str(&general_request.method) {
                 Ok(method) => method,
@@ -286,6 +286,13 @@ impl RpcErrorResponse {
 }
 
 impl EngineRpcRequest {
+    #[inline]
+    pub fn as_bytes(&self) -> Vec<u8> {
+        serde_json::to_vec(self).unwrap()
+    }
+}
+
+impl GeneralRpcRequestRpcRequest {
     #[inline]
     pub fn as_bytes(&self) -> Vec<u8> {
         serde_json::to_vec(self).unwrap()
