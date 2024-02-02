@@ -1,13 +1,15 @@
 #![allow(non_camel_case_types)]
-use std::sync::Arc;
-use lru::LruCache;
 use ethereum_types::{Address, H256, H64, U256};
+use lru::LruCache;
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
-use ssz_types::{VariableList, typenum::{U1073741824, U1048576}};
+use ssz_types::{
+    typenum::{U1048576, U1073741824},
+    VariableList,
+};
+use std::sync::Arc;
 use superstruct::superstruct;
 use tokio::sync::RwLock;
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -57,8 +59,10 @@ pub struct Withdrawal {
     pub amount: u64,
 }
 
-
-#[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase")))]
+#[superstruct(
+    variants(V1, V2, V3),
+    variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase"))
+)]
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", untagged, deny_unknown_fields)]
 pub struct ExecutionPayload {
@@ -94,7 +98,7 @@ pub struct ExecutionPayload {
     #[superstruct(getter(copy))]
     pub block_hash: H256,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions: VariableList<VariableList<u8, U1073741824>, U1048576>,    // larger one is max bytes per transaction, smaller one is max transactions per payload
+    pub transactions: VariableList<VariableList<u8, U1073741824>, U1048576>, // larger one is max bytes per transaction, smaller one is max transactions per payload
     #[superstruct(only(V2, V3))]
     pub withdrawals: Vec<Withdrawal>,
     #[superstruct(only(V3), partial_getter(copy))]
@@ -187,7 +191,7 @@ pub enum EngineMethod {
     engine_newPayloadV1,
     engine_forkchoiceUpdatedV1,
     engine_getPayloadV1,
-    engine_exchangeTransitionConfigurationV1,
+    //engine_exchangeTransitionConfigurationV1,
     engine_exchangeCapabilities,
     engine_newPayloadV2,
     engine_forkchoiceUpdatedV2,
@@ -197,7 +201,6 @@ pub enum EngineMethod {
     engine_newPayloadV3,
     engine_forkchoiceUpdatedV3,
     engine_getPayloadV3,
-    
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -218,7 +221,11 @@ pub struct RpcResponse {
 
 impl RpcResponse {
     pub fn new(result: serde_json::Value, id: u64) -> Self {
-        RpcResponse { result: result, id: id, jsonrpc: "2.0".to_string() }
+        RpcResponse {
+            result: result,
+            id: id,
+            jsonrpc: "2.0".to_string(),
+        }
     }
 }
 
@@ -232,7 +239,11 @@ pub struct RpcErrorResponse {
 
 impl RpcErrorResponse {
     pub fn new(error: serde_json::Value, id: u64) -> Self {
-        RpcErrorResponse { error: error, id: id, jsonrpc: "2.0".to_string() }
+        RpcErrorResponse {
+            error: error,
+            id: id,
+            jsonrpc: "2.0".to_string(),
+        }
     }
 }
 
@@ -264,7 +275,10 @@ pub struct NewPayloadRequest {
     pub parent_beacon_block_root: Option<H256>,
 }
 
-#[superstruct(variants(V1, V2, V3), variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase")))]
+#[superstruct(
+    variants(V1, V2, V3),
+    variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase"))
+)]
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", untagged)]
 pub struct GetPayloadResponse {
@@ -280,7 +294,7 @@ pub struct GetPayloadResponse {
     #[superstruct(only(V3))]
     pub blobs_bundle: serde_json::Value,
     #[superstruct(only(V3), partial_getter(copy))]
-    pub should_override_builder: bool
+    pub should_override_builder: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
@@ -303,7 +317,6 @@ pub struct AuthNode {
     pub url: String,
     pub jwt_secret: Arc<jsonwebtoken::EncodingKey>,
 }
-
 
 pub struct State {
     pub auth_node: Arc<AuthNode>,
