@@ -292,7 +292,7 @@ impl EngineRpcRequest {
     }
 }
 
-impl GeneralRpcRequestRpcRequest {
+impl GeneralRpcRequest {
     #[inline]
     pub fn as_bytes(&self) -> Vec<u8> {
         serde_json::to_vec(self).unwrap()

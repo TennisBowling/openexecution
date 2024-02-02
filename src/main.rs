@@ -1,17 +1,20 @@
 mod keccak;
 mod types;
 mod verify_hash;
-use axum::extract;
-use axum::http::HeaderMap;
 use axum::{self, extract::DefaultBodyLimit, http::StatusCode, response::IntoResponse, Router};
+use axum::{extract, Extension};
 use axum_extra::TypedHeader;
 use ethereum_types::H256;
-use headers::{authorization::Bearer, Authorization};
-use jsonwebtoken::{self, Validation};
+use headers::authorization::Bearer;
+use jsonwebtoken;
+use lru::LruCache;
 use serde_json::json;
 use std::any::type_name;
 use std::error::Error;
+use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::{sync::Arc, time::Duration};
+use tokio::sync::RwLock;
 use types::*;
 use verify_hash::*;
 
@@ -545,25 +548,24 @@ async fn handle_generic_request(
 async fn canonical_route_all(
     extract::Json(request): extract::Json<GeneralRpcRequest>,
     TypedHeader(jwt): TypedHeader<Bearer>,
-    state: Arc<State>,
+    Extension(state): Extension<Arc<State>>,
 ) -> Result<RpcResponse, RpcErrorResponse> {
-    let jwt_secret = jwt.token();
+    let jwt_secret = jwt.token().to_string();
 
     if let Ok(engine_request) = EngineRpcRequest::from_general(&request) {
-        return handle_canonical_engine(engine_request, state, jwt_secret.to_string()).await;
+        return handle_canonical_engine(engine_request, state, jwt_secret).await;
     }
     handle_generic_request(request, state).await
 }
 
 async fn client_route_all(
-    is_engine: bool,
-    state: Arc<State>,
-    jwt_secret: String,
+    extract::Json(request): extract::Json<GeneralRpcRequest>,
+    Extension(state): Extension<Arc<State>>,
 ) -> Result<RpcResponse, RpcErrorResponse> {
-    match is_engine {
-        true => handle_client_engine(request, state).await,
-        false => handle_generic_request(request, state).await,
+    if let Ok(engine_request) = EngineRpcRequest::from_general(&request) {
+        return handle_client_engine(engine_request, state).await;
     }
+    handle_generic_request(request, state).await
 }
 
 #[tokio::main]
@@ -677,14 +679,33 @@ async fn main() {
     }
     let jwt_secret = jwt_secret.unwrap();
 
-    let jwt_encoding_secret = &jsonwebtoken::EncodingKey::from_secret(&jwt_secret);
-    let jwt_decoding_secret = &jsonwebtoken::DecodingKey::from_secret(&jwt_secret);
+    let jwt_secret = jsonwebtoken::EncodingKey::from_secret(&jwt_secret);
 
     tracing::info!("Loaded JWT secret");
 
-    /*let app = Router::new()
-        .route("/", axum::routing::post(route_all))
-        .layer(Extension(router.clone()))
+    let auth_node = Arc::new(AuthNode {
+        client: reqwest::Client::new(),
+        url: node.to_string(),
+        Arc::new(jwt_secret),
+    });
+    let unauth_node = Arc::new(Node {
+        client: reqwest::Client::new(),
+        url: unauth_node.to_string(),
+    });
+    let fcu_cache = RwLock::new(LruCache::new(NonZeroUsize::new(64).unwrap()));
+    let new_payload_cache = RwLock::new(LruCache::new(NonZeroUsize::new(64).unwrap()));
+
+    let state = Arc::new(State {
+        auth_node,
+        unauth_node,
+        fcu_cache,
+        new_payload_cache,
+    });
+
+    let app = Router::new()
+        .route("/", axum::routing::post(client_route_all))
+        .route("/canonical", axum::routing::post(canonical_route_all))
+        .layer(Extension(state.clone()))
         .layer(DefaultBodyLimit::disable()); // no body limit since some requests can be quite large
 
     let addr = format!("{}:{}", listen_addr, port);
@@ -697,5 +718,5 @@ async fn main() {
         }
     };
     tracing::info!("Listening on {}", addr);
-    axum::serve(listener, app).await.unwrap();*/
+    axum::serve(listener, app).await.unwrap();
 }
