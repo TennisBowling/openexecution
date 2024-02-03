@@ -33,7 +33,7 @@ chrono = "0.4.31"
 lru = "0.12.1"
 rlp = "0.5.2"
 triehash = "0.8.4"
-
+strum = { version = "0.26.1", features = ["derive"] }
 
 [profile.highperf]
 inherits = "release"

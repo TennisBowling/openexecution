@@ -7,9 +7,11 @@ use ssz_types::{
     typenum::{U1048576, U1073741824},
     VariableList,
 };
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 use superstruct::superstruct;
 use tokio::sync::RwLock;
+use strum::EnumString;
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -170,12 +172,13 @@ pub enum ParseError {
     CouldNotCastToType,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, EnumString)]
 pub enum EngineMethod {
     engine_newPayloadV1,
     engine_forkchoiceUpdatedV1,
     engine_getPayloadV1,
     engine_exchangeCapabilities,
+    engine_exchangeTransitionConfigurationV1,
     engine_newPayloadV2,
     engine_forkchoiceUpdatedV2,
     engine_getPayloadV2,
@@ -192,18 +195,18 @@ pub enum MethodSerializeError {
     NotEngineMethod,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EngineRpcRequest {
     pub method: EngineMethod,
     pub params: serde_json::Value,
     pub id: u64,
-    // no jsonrpc since always derived from GeneralRpcRequest
+    pub jsonrpc: String,
 }
 
 impl EngineRpcRequest {
     pub fn from_general(general_request: &GeneralRpcRequest) -> Result<Self, MethodSerializeError> {
         if general_request.method.starts_with("engine") {
-            let method: EngineMethod = match serde_json::from_str(&general_request.method) {
+            let method = match EngineMethod::from_str(&general_request.method) {
                 Ok(method) => method,
                 Err(e) => {
                     tracing::error!(
@@ -219,6 +222,7 @@ impl EngineRpcRequest {
                 method,
                 params: general_request.params.clone(),
                 id: general_request.id,
+                jsonrpc: "2.0".to_string(),
             });
         }
 
