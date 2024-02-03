@@ -30,14 +30,6 @@ pub struct PayloadStatus {
 }
 
 impl PayloadStatus {
-    pub fn new_invalid(latest_valid_hash: H256, validation_error: String) -> Self {
-        Self {
-            status: PayloadStatusStatus::Invalid,
-            latest_valid_hash: Some(latest_valid_hash),
-            validation_error: Some(validation_error),
-        }
-    }
-
     pub fn new_syncing() -> Self {
         Self {
             status: PayloadStatusStatus::Syncing,
@@ -169,17 +161,9 @@ pub struct Claims {
     pub iat: i64,
 }
 
-#[derive(PartialEq, Clone, Copy)]
-pub enum SyncingStatus {
-    Synced,
-    Offline,
-    OnlineAndSyncing,
-    NodeNotInitialized,
-}
-
 #[derive(Debug)]
 pub enum ParseError {
-    NoId,
+    //NoId,
     InvalidJson,
     ElError,
     ResultNotFound,
@@ -223,8 +207,9 @@ impl EngineRpcRequest {
                 Ok(method) => method,
                 Err(e) => {
                     tracing::error!(
-                        "Could not serialize method to EngineMethod: {}",
-                        general_request.method
+                        "Could not serialize method {} to EngineMethod: {}",
+                        general_request.method,
+                        e
                     );
                     return Err(MethodSerializeError::CouldNotSerialize);
                 }
@@ -232,7 +217,7 @@ impl EngineRpcRequest {
 
             return Ok(EngineRpcRequest {
                 method,
-                params: general_request.params,
+                params: general_request.params.clone(),
                 id: general_request.id,
             });
         }
@@ -260,8 +245,8 @@ pub struct RpcResponse {
 impl RpcResponse {
     pub fn new(result: serde_json::Value, id: u64) -> Self {
         RpcResponse {
-            result: result,
-            id: id,
+            result,
+            id,
             jsonrpc: "2.0".to_string(),
         }
     }
@@ -278,8 +263,8 @@ pub struct RpcErrorResponse {
 impl RpcErrorResponse {
     pub fn new(error: serde_json::Value, id: u64) -> Self {
         RpcErrorResponse {
-            error: error,
-            id: id,
+            error,
+            id,
             jsonrpc: "2.0".to_string(),
         }
     }

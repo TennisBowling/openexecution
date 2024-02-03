@@ -1,12 +1,12 @@
 mod keccak;
 mod types;
 mod verify_hash;
-use axum::{self, extract::DefaultBodyLimit, http::StatusCode, response::IntoResponse, Router};
+use axum::{self, extract::DefaultBodyLimit, Router};
 use axum::{extract, Extension};
 use axum_extra::TypedHeader;
 use ethereum_types::H256;
 use headers::authorization::Bearer;
-use jsonwebtoken;
+use headers::Authorization;
 use lru::LruCache;
 use serde_json::json;
 use std::any::type_name;
@@ -27,7 +27,7 @@ fn make_jwt(jwt_secret: &Arc<jsonwebtoken::EncodingKey>, timestamp: &i64) -> Str
         &Claims {
             iat: timestamp.to_owned(),
         },
-        &jwt_secret,
+        jwt_secret,
     )
     .unwrap()
 }
@@ -152,10 +152,10 @@ fn fcu_serializer(
         }
     };
 
-    if params.len() < 1 {
-        tracing::error!("CL fcU request had less than 1 param.");
+    if params.is_empty() {
+        tracing::error!("CL fcU request does not have the required param.");
         return Err(RpcErrorResponse::new(
-            json!("fcU request had less than 1 param."),
+            json!("fcU request does not have the required param."),
             request.id,
         ));
     }
@@ -464,14 +464,14 @@ async fn pass_to_auth(
 
     match res {
         Ok(el_res) => {
-            return Ok(RpcResponse::new(el_res, request.id));
+            Ok(RpcResponse::new(el_res, request.id))
         }
         Err(e) => {
             tracing::error!("{:?} request failed: {}", request.method, e);
-            return Err(RpcErrorResponse::new(
+            Err(RpcErrorResponse::new(
                 json!(format!("Request failed: {}", e)),
                 request.id,
-            ));
+            ))
         }
     }
 }
@@ -533,39 +533,39 @@ async fn handle_generic_request(
 
     match res {
         Ok(el_res) => {
-            return Ok(RpcResponse::new(el_res, request.id));
+            Ok(RpcResponse::new(el_res, request.id))
         }
         Err(e) => {
             tracing::error!("{:?} request failed: {}", request.method, e);
-            return Err(RpcErrorResponse::new(
+            Err(RpcErrorResponse::new(
                 json!(format!("Request failed: {}", e)),
                 request.id,
-            ));
+            ))
         }
     }
 }
 
 async fn canonical_route_all(
-    extract::Json(request): extract::Json<GeneralRpcRequest>,
-    TypedHeader(jwt): TypedHeader<Bearer>,
+    TypedHeader(jwt): TypedHeader<Authorization<Bearer>>,
     Extension(state): Extension<Arc<State>>,
-) -> Result<RpcResponse, RpcErrorResponse> {
+    extract::Json(request): extract::Json<GeneralRpcRequest>,
+) -> Result<extract::Json<RpcResponse>, extract::Json<RpcErrorResponse>> {
     let jwt_secret = jwt.token().to_string();
 
     if let Ok(engine_request) = EngineRpcRequest::from_general(&request) {
-        return handle_canonical_engine(engine_request, state, jwt_secret).await;
+        return handle_canonical_engine(engine_request, state, jwt_secret).await.map(extract::Json).map_err(extract::Json);
     }
-    handle_generic_request(request, state).await
+    handle_generic_request(request, state).await.map(extract::Json).map_err(extract::Json)
 }
 
 async fn client_route_all(
-    extract::Json(request): extract::Json<GeneralRpcRequest>,
     Extension(state): Extension<Arc<State>>,
-) -> Result<RpcResponse, RpcErrorResponse> {
+    extract::Json(request): extract::Json<GeneralRpcRequest>,
+) -> Result<extract::Json<RpcResponse>, extract::Json<RpcErrorResponse>> {
     if let Ok(engine_request) = EngineRpcRequest::from_general(&request) {
-        return handle_client_engine(engine_request, state).await;
+        return handle_client_engine(engine_request, state).await.map(extract::Json).map_err(extract::Json);
     }
-    handle_generic_request(request, state).await
+    handle_generic_request(request, state).await.map(extract::Json).map_err(extract::Json)
 }
 
 #[tokio::main]
@@ -686,7 +686,7 @@ async fn main() {
     let auth_node = Arc::new(AuthNode {
         client: reqwest::Client::new(),
         url: node.to_string(),
-        Arc::new(jwt_secret),
+        jwt_secret: Arc::new(jwt_secret),
     });
     let unauth_node = Arc::new(Node {
         client: reqwest::Client::new(),
