@@ -17,19 +17,43 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 use types::*;
 use verify_hash::*;
+use tracing_subscriber::filter::EnvFilter;
 
-const DEFAULT_ALGORITHM: jsonwebtoken::Algorithm = jsonwebtoken::Algorithm::HS256;
+//  const MERGE_FORK_EPOCH: Option<u64> = Some(144896);
+const SHANGHAI_FORK_EPOCH: Option<u64> = Some(194048);
+const CANCUN_FORK_EPOCH: Option<u64> = None;
 const VERSION: &str = "0.0.1";
 
 fn make_jwt(jwt_secret: &Arc<jsonwebtoken::EncodingKey>, timestamp: &i64) -> String {
     jsonwebtoken::encode(
-        &jsonwebtoken::Header::new(DEFAULT_ALGORITHM),
+        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
         &Claims {
             iat: timestamp.to_owned(),
         },
         jwt_secret,
     )
     .unwrap()
+}
+
+pub fn fork_name_at_epoch(epoch: u64) -> ForkName {
+    if let Some(fork_epoch) = CANCUN_FORK_EPOCH {
+        if epoch >= fork_epoch {
+            return ForkName::Cancun;
+        }
+    }
+    if let Some(fork_epoch) = SHANGHAI_FORK_EPOCH {
+        if epoch >= fork_epoch {
+            return ForkName::Shanghai;
+        }
+    }
+    ForkName::Merge
+}
+
+fn timestamp_to_version(timestamp: &u64) -> Option<ForkName> {
+    // 32 slots/epoch
+    let slot = timestamp.checked_sub(1606824000)?.checked_div(12)?;     // genesis time / seconds per slot
+    let epoch = slot.checked_div(32)?;      // slot / slots per epoch
+    Some(fork_name_at_epoch(epoch))
 }
 
 fn new_payload_serializer(
@@ -56,7 +80,7 @@ fn new_payload_serializer(
             ));
         }
 
-        let execution_payload: ExecutionPayload = match serde_json::from_value(params[0].take()) {
+        let execution_payload: ExecutionPayloadV3 = match serde_json::from_value(params[0].take()) {
             // direct getting is safe here since we checked that we have least 3 elements
             Ok(execution_payload) => execution_payload,
             Err(e) => {
@@ -100,7 +124,7 @@ fn new_payload_serializer(
         };
 
         return Ok(NewPayloadRequest {
-            execution_payload,
+            execution_payload: types::ExecutionPayload::V3(execution_payload),
             expected_blob_versioned_hashes: Some(versioned_hashes),
             parent_beacon_block_root: Some(parent_beacon_block_root),
         });
@@ -116,19 +140,78 @@ fn new_payload_serializer(
         ));
     }
 
-    let execution_payload: ExecutionPayload = match serde_json::from_value(params[0].take()) {
-        Ok(execution_payload) => execution_payload,
-        Err(e) => {
-            tracing::error!(
-                "Could not serialize ExecutionPayload from newPayloadV1|2: {}",
-                e
-            );
-            return Err(RpcErrorResponse::new(
-                json!("Could not serialize ExecutionPayload."),
-                request.id,
-            ));
+    let QuantityU64 {value: timestamp } = match params[0].get("timestamp") {
+        Some(timestamp) => {
+            match serde_json::from_value(timestamp.clone()) {
+                Ok(timestamp) => timestamp,
+                Err(e) => {
+                    tracing::error!("Execution payload timestamp is not representable as u64: {}. Timestamp: {}", e, timestamp);
+                    return Err(RpcErrorResponse::new(json!("Execution payload timestamp is not representable as u64"), request.id));
+                }
+            }
+        },
+        None => {
+            tracing::error!("Execution payload does not have timestamp");
+            return Err(RpcErrorResponse::new(json!("Execution payload does not have timestamp"), request.id));
         }
     };
+
+    let fork_name = match timestamp_to_version(&timestamp) {
+        Some(fork_name) => fork_name,
+        None => {
+            tracing::error!("Error converting execution payload timestamp to fork name");
+            return Err(RpcErrorResponse::new(json!("Error converting execution payload timestamp to fork name"), request.id));
+        }
+    };
+
+    let execution_payload = match fork_name {
+        ForkName::Merge => {
+            match serde_json::from_value::<ExecutionPayloadV1>(params[0].take()) {
+                Ok(execution_payload) => ExecutionPayload::V1(execution_payload),
+                Err(e) => {
+                    tracing::error!(
+                        "Could not serialize ExecutionPayloadV1 from newPayloadV1|2; Merge fork. Error: {}",
+                        e
+                    );
+                    return Err(RpcErrorResponse::new(
+                        json!("Could not serialize ExecutionPayload."),
+                        request.id,
+                    ));
+                }
+            }
+        },
+        ForkName::Shanghai => {
+            match serde_json::from_value::<ExecutionPayloadV2>(params[0].take()) {
+                Ok(execution_payload) => ExecutionPayload::V2(execution_payload),
+                Err(e) => {
+                    tracing::error!(
+                        "Could not serialize ExecutionPayloadV2 from newPayloadV2; Shanghai fork. Error: {}",
+                        e
+                    );
+                    return Err(RpcErrorResponse::new(
+                        json!("Could not serialize ExecutionPayload."),
+                        request.id,
+                    ));
+                }
+            }
+        },
+        ForkName::Cancun => {
+            match serde_json::from_value::<ExecutionPayloadV3>(params[0].take()) {
+                Ok(execution_payload) => ExecutionPayload::V3(execution_payload),
+                Err(e) => {
+                    tracing::error!(
+                        "Could not serialize ExecutionPayloadV3 from newPayloadV3; Cancun fork. Error: {}",
+                        e
+                    );
+                    return Err(RpcErrorResponse::new(
+                        json!("Could not serialize ExecutionPayload."),
+                        request.id,
+                    ));
+                }
+            }
+        },
+    };
+
 
     Ok(NewPayloadRequest {
         execution_payload,
@@ -288,15 +371,15 @@ async fn make_unauth_request<T: serde::de::DeserializeOwned>(
 }
 
 async fn get_new_payload_with_retry(state: Arc<State>, block_hash: &H256) -> Option<PayloadStatus> {
-    for i in 1..6 {
+    for i in 1..11 {
         if let Some(payload_status) = state.new_payload_cache.read().await.peek(block_hash) {
             tracing::debug!("Got newPayload for client on {}st try.", i);
             return Some(payload_status.clone());
         }
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    tracing::debug!("Could not get newPayload from cache for client.");
+    tracing::warn!("Could not get newPayload from cache for client.");
     None
 }
 
@@ -309,10 +392,10 @@ async fn get_fcu_with_retry(
             tracing::debug!("Got fcU for client on {}st try.", i);
             return Some(payload_status.clone());
         }
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    tracing::debug!("Could not get fcU from cache for client.");
+    tracing::warn!("Could not get fcU from cache for client.");
     None
 }
 
@@ -348,7 +431,7 @@ async fn client_newpayload(
     state: Arc<State>,
 ) -> Result<RpcResponse, RpcErrorResponse> {
     let id = request.id;
-    let request_execution_payload = new_payload_serializer(request)?;
+    let request_execution_payload = new_payload_serializer(request.clone())?;
 
     match get_new_payload_with_retry(
         state,
@@ -364,14 +447,14 @@ async fn client_newpayload(
                     // hash check is fine, return SYNCING
                     tracing::warn!("Client newPayload: Did not find in cache, returning SYNCING");
                     Ok(RpcResponse::new(json!(PayloadStatus::new_syncing()), id))
-                }
+                },
                 Err(e) => {
                     tracing::error!("Client newPayload: Did not find in cache and payload block hash verification failed: {}", e);
                     Err(RpcErrorResponse::new(
                         json!("Payload block hash check failed"),
                         id,
                     ))
-                }
+                },
             }
         }
     }
@@ -646,17 +729,15 @@ async fn main() {
     let node = matches.value_of("node").unwrap();
     let unauth_node = matches.value_of("unauth-node").unwrap();
 
-    let log_level = match log_level {
-        "trace" => tracing::Level::TRACE,
-        "debug" => tracing::Level::DEBUG,
-        "info" => tracing::Level::INFO,
-        "warn" => tracing::Level::WARN,
-        "error" => tracing::Level::ERROR,
-        _ => tracing::Level::INFO,
-    };
-    // set log level with tracing subscriber
-    let subscriber = tracing_subscriber::fmt().with_max_level(log_level).finish();
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+    
+    let filter_string = format!("{},hyper=info", log_level);
+    
+    let filter = EnvFilter::try_new(filter_string)
+        .unwrap_or_else(|_| EnvFilter::new(log_level));
+
+    let subscriber = tracing_subscriber::fmt::Subscriber::builder().with_env_filter(filter).finish();
+    
+    tracing::subscriber::set_global_default(subscriber).expect("Setting default subscriber failed");
     tracing::info!("Starting openexecution version {VERSION}");
 
     let jwt_secret = std::fs::read_to_string(jwt_secret);

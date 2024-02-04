@@ -238,7 +238,7 @@ pub struct GeneralRpcRequest {
     pub jsonrpc: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcResponse {
     pub result: serde_json::Value,
@@ -256,7 +256,7 @@ impl RpcResponse {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcErrorResponse {
     pub error: serde_json::Value,
@@ -357,4 +357,17 @@ pub struct State {
     pub unauth_node: Arc<Node>,
     pub fcu_cache: RwLock<LruCache<ForkchoiceState, PayloadStatus>>,
     pub new_payload_cache: RwLock<LruCache<H256, PayloadStatus>>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct QuantityU64 {
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub value: u64,
+}
+
+pub enum ForkName {
+    Merge,
+    Shanghai,
+    Cancun,
 }
