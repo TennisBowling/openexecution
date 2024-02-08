@@ -379,7 +379,6 @@ async fn get_new_payload_with_retry(state: Arc<State>, block_hash: &H256) -> Opt
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    tracing::warn!("Could not get newPayload from cache for client.");
     None
 }
 
@@ -395,7 +394,6 @@ async fn get_fcu_with_retry(
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 
-    tracing::warn!("Could not get fcU from cache for client.");
     None
 }
 
