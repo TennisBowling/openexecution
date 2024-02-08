@@ -422,6 +422,7 @@ async fn canonical_newpayload(
         .write()
         .await
         .push(block_hash, payloadstatus_result.clone());
+    tracing::debug!("Cached newPayload from canonical node");
 
     Ok(RpcResponse::new(json!(payloadstatus_result), id))
 }
@@ -481,6 +482,8 @@ async fn canonical_fcu(
         .write()
         .await
         .push(forkchoice_state, fcu_result.payload_status.clone());
+
+    tracing::debug!("Cached fcU from canonical node");
 
     Ok(RpcResponse::new(json!(fcu_result), id))
 }
