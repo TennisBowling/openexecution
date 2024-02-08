@@ -514,15 +514,15 @@ async fn client_fcu(
                     return Ok(RpcResponse::new(json!(fcu_result), id));
                 } else {
                     tracing::warn!("Tried passing client CL payloadAttributes but cached EL response is not VALID");
-                    return Ok(RpcResponse::new(json!(PayloadStatus::new_syncing()), id));
+                    return Ok(RpcResponse::new(json!(ForkchoiceUpdatedResponse{ payload_status: PayloadStatus::new_syncing(), payload_id: None }), id));
                 }
             }
             // don't want to build a block
-            Ok(RpcResponse::new(json!(payload_status), id))
+            Ok(RpcResponse::new(json!(ForkchoiceUpdatedResponse{ payload_status, payload_id: None }), id))
         }
         None => {
             tracing::warn!("Client newPayload: Did not find in cache, returning SYNCING");
-            Ok(RpcResponse::new(json!(PayloadStatus::new_syncing()), id))
+            Ok(RpcResponse::new(json!(ForkchoiceUpdatedResponse{ payload_status: PayloadStatus::new_syncing(), payload_id: None }), id))
         }
     }
 }
