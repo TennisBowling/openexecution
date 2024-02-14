@@ -735,12 +735,6 @@ async fn main() {
     let unauth_node = matches.value_of("unauth-node").unwrap();
     let passthrough_newpayload = matches.is_present("passthrough-newpayload");
 
-
-    if passthrough_newpayload {
-        tracing::warn!("Enabling newPayload passthrough exposes you to a DoS risk.");
-    }
-    
-
     
     let filter_string = format!("{},hyper=info", log_level);
     
@@ -751,6 +745,10 @@ async fn main() {
     
     tracing::subscriber::set_global_default(subscriber).expect("Setting default subscriber failed");
     tracing::info!("Starting openexecution version {VERSION}");
+
+    if passthrough_newpayload {
+        tracing::warn!("Enabling newPayload passthrough exposes you to a DoS risk.");
+    }
 
     let jwt_secret = std::fs::read_to_string(jwt_secret);
     if let Err(e) = jwt_secret {
