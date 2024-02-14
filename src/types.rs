@@ -355,6 +355,7 @@ pub struct AuthNode {
 pub struct State {
     pub auth_node: Arc<AuthNode>,
     pub unauth_node: Arc<Node>,
+    pub passthrough_newpayload: bool,
     pub fcu_cache: RwLock<LruCache<ForkchoiceState, PayloadStatus>>,
     pub new_payload_cache: RwLock<LruCache<H256, PayloadStatus>>,
 }

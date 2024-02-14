@@ -433,13 +433,18 @@ async fn client_newpayload(
     let request_execution_payload = new_payload_serializer(request.clone())?;
 
     match get_new_payload_with_retry(
-        state,
+        state.clone(),
         &request_execution_payload.execution_payload.block_hash(),
     )
     .await
     {
         Some(payload_status) => Ok(RpcResponse::new(json!(payload_status), id)),
         None => {
+            if state.passthrough_newpayload {
+                tracing::debug!("Client newPayload: Did not find in cache, passing to auth node.");
+                return pass_to_auth(request, state, None).await;
+            }
+
             // check if hash is OK
             match verify_payload_block_hash(&request_execution_payload.execution_payload) {
                 Ok(()) => {
@@ -721,6 +726,16 @@ async fn main() {
                 .help("Path to log file")
                 .takes_value(true),
         )
+        .arg(
+            clap::Arg::with_name("passthrough-newpayload")
+                .long("passthrough-newpayload")
+                .value_name("passthrough-newpayload")
+                .help("Pass through client newPayload requests to the auth node if not found in the cache (may present a DoS risk).")
+                .long_help("Pass through client newPayload requests to the auth node if not found in the cache (may present a DoS risk). The DoS risk stems from
+                the possibility of the client requesting validation of many/old payloads that openexecution doesn't have cached.")
+                .takes_value(true)
+                .default_value("false")
+        )
         .get_matches();
 
     let port = matches.value_of("port").unwrap();
@@ -729,6 +744,20 @@ async fn main() {
     let log_level = matches.value_of("log-level").unwrap();
     let node = matches.value_of("node").unwrap();
     let unauth_node = matches.value_of("unauth-node").unwrap();
+    let passthrough_newpayload = matches.value_of("passthrough-newpayload").unwrap();
+
+    let passthrough_newpayload = match passthrough_newpayload.parse::<bool>() {
+        Ok(passthrough_newpayload) => {
+            if passthrough_newpayload {
+                tracing::warn!("Enabling newPayload passthrough exposes you to a DoS risk.");
+            }
+            passthrough_newpayload
+        },
+        Err(_) => {
+            tracing::error!("Could not parse passthrough-newpayload as true or false.");
+            return;
+        },
+    };
 
     
     let filter_string = format!("{},hyper=info", log_level);
@@ -782,6 +811,7 @@ async fn main() {
     let state = Arc::new(State {
         auth_node,
         unauth_node,
+        passthrough_newpayload,
         fcu_cache,
         new_payload_cache,
     });
