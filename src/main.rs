@@ -674,7 +674,6 @@ async fn main() {
         .arg(
             clap::Arg::with_name("port")
                 .long("port")
-                .value_name("PORT")
                 .help("Port to listen on")
                 .takes_value(true)
                 .default_value("7000"),
@@ -682,7 +681,6 @@ async fn main() {
         .arg(
             clap::Arg::with_name("jwt-secret")
                 .long("jwt-secret")
-                .value_name("JWT")
                 .help("Path to JWT secret file")
                 .takes_value(true)
                 .required(true),
@@ -690,7 +688,6 @@ async fn main() {
         .arg(
             clap::Arg::with_name("listen-addr")
                 .long("listen-addr")
-                .value_name("LISTEN")
                 .help("Address to listen on")
                 .takes_value(true)
                 .default_value("0.0.0.0"),
@@ -698,7 +695,6 @@ async fn main() {
         .arg(
             clap::Arg::with_name("log-level")
                 .long("log-level")
-                .value_name("LOG")
                 .help("Log level")
                 .takes_value(true)
                 .default_value("info"),
@@ -706,7 +702,6 @@ async fn main() {
         .arg(
             clap::Arg::with_name("node")
                 .long("node")
-                .value_name("NODE")
                 .help("EL node to connect to for engine_ requests")
                 .takes_value(true)
                 .required(true),
@@ -714,7 +709,6 @@ async fn main() {
         .arg(
             clap::Arg::with_name("unauth-node")
                 .long("unauth-node")
-                .value_name("unauth_node")
                 .help("unauth EL node to connect to (for non-engine_ requests, such as eth_ requests)")
                 .takes_value(true)
                 .required(true),
@@ -722,19 +716,14 @@ async fn main() {
         .arg(
             clap::Arg::with_name("log-file")
                 .long("log-file")
-                .value_name("log-path")
                 .help("Path to log file")
                 .takes_value(true),
         )
         .arg(
             clap::Arg::with_name("passthrough-newpayload")
                 .long("passthrough-newpayload")
-                .value_name("passthrough-newpayload")
                 .help("Pass through client newPayload requests to the auth node if not found in the cache (may present a DoS risk).")
-                .long_help("Pass through client newPayload requests to the auth node if not found in the cache (may present a DoS risk). The DoS risk stems from
-                the possibility of the client requesting validation of many/old payloads that openexecution doesn't have cached.")
-                .takes_value(true)
-                .default_value("false")
+                .long_help("Pass through client newPayload requests to the auth node if not found in the cache (may present a DoS risk). The DoS risk stems from the possibility of the client requesting validation of many/old payloads that openexecution doesn't have cached.")
         )
         .get_matches();
 
@@ -744,20 +733,13 @@ async fn main() {
     let log_level = matches.value_of("log-level").unwrap();
     let node = matches.value_of("node").unwrap();
     let unauth_node = matches.value_of("unauth-node").unwrap();
-    let passthrough_newpayload = matches.value_of("passthrough-newpayload").unwrap();
+    let passthrough_newpayload = matches.is_present("passthrough-newpayload");
 
-    let passthrough_newpayload = match passthrough_newpayload.parse::<bool>() {
-        Ok(passthrough_newpayload) => {
-            if passthrough_newpayload {
-                tracing::warn!("Enabling newPayload passthrough exposes you to a DoS risk.");
-            }
-            passthrough_newpayload
-        },
-        Err(_) => {
-            tracing::error!("Could not parse passthrough-newpayload as true or false.");
-            return;
-        },
-    };
+
+    if passthrough_newpayload {
+        tracing::warn!("Enabling newPayload passthrough exposes you to a DoS risk.");
+    }
+    
 
     
     let filter_string = format!("{},hyper=info", log_level);
