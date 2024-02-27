@@ -17,13 +17,13 @@ Thank you Lighthouse Team for everything you do!
 - <3 Tennis
 */
 
+use crate::keccak::*;
+use crate::*;
 use ethereum_types::{Address, H256, H64, U256};
 use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use rlp::RlpStream;
 use std::error::Error;
 use triehash::ordered_trie_root;
-use crate::keccak::*;
-use crate::*;
 
 // Thank you lighthouse team! https://github.com/sigp/lighthouse/blob/stable/beacon_node/execution_layer/src/block_hash.rs#L50-L59
 /// RLP encode an execution block header.
@@ -60,8 +60,11 @@ pub fn verify_payload_block_hash(payload: &ExecutionPayload) -> Result<(), Box<d
     // Calculate withdrawals root (post-Capella).
     let rlp_withdrawals_root = ordered_trie_root::<KeccakHasher, _>(
         payload
-            .withdrawals().map_err(|_| "Error: Tried to verify payload block hash on pre-capella block".to_string())?
-            .iter() 
+            .withdrawals()
+            .map_err(|_| {
+                "Error: Tried to verify payload block hash on pre-capella block".to_string()
+            })?
+            .iter()
             .map(rlp_encode_withdrawal),
     );
 
@@ -80,7 +83,8 @@ pub fn verify_payload_block_hash(payload: &ExecutionPayload) -> Result<(), Box<d
     if header_hash != payload.block_hash() {
         return Err(format!(
             "Block hash mismatch: expected {:?}, got {:?}",
-            header_hash, payload.block_hash()
+            header_hash,
+            payload.block_hash()
         )
         .into());
     }
@@ -91,7 +95,7 @@ pub fn verify_payload_block_hash(payload: &ExecutionPayload) -> Result<(), Box<d
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use std::error::Error;
 
     #[test]
@@ -113,7 +117,7 @@ mod tests {
         json["params"][0]["blockHash"] = serde_json::Value::String(
             "0x19ebf723fc49231dc86a566bd534034fff0a2f23cf12546f23b418d690096815".to_string(),
         ); // hash from above but slightly changed
-        let payload:ExecutionPayload = serde_json::from_value(json["params"][0].clone())?;
+        let payload: ExecutionPayload = serde_json::from_value(json["params"][0].clone())?;
         let res = verify_payload_block_hash(&payload);
         assert!(res.is_err());
 

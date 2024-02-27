@@ -1,4 +1,6 @@
 #![allow(non_camel_case_types)]
+use crate::axum::body::Body;
+use axum::response::IntoResponse;
 use ethereum_types::{Address, H256, H64, U256};
 use lru::LruCache;
 use metastruct::metastruct;
@@ -8,10 +10,9 @@ use ssz_types::{
     VariableList,
 };
 use std::{str::FromStr, sync::Arc};
+use strum::EnumString;
 use superstruct::superstruct;
 use tokio::sync::RwLock;
-use strum::EnumString;
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -193,6 +194,47 @@ pub enum EngineMethod {
 pub enum MethodSerializeError {
     CouldNotSerialize,
     NotEngineMethod,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RpcRequestType {
+    Single(GeneralRpcRequest),
+    Multiple(Vec<GeneralRpcRequest>),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RpcResponseResult {
+    Ok(RpcResponse),
+    Err(RpcErrorResponse),
+}
+
+impl From<Result<RpcResponse, RpcErrorResponse>> for RpcResponseResult {
+    fn from(result: Result<RpcResponse, RpcErrorResponse>) -> Self {
+        match result {
+            Ok(response) => RpcResponseResult::Ok(response),
+            Err(error) => RpcResponseResult::Err(error),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RpcResponseType {
+    Single(RpcResponseResult),
+    Multiple(Vec<RpcResponseResult>),
+}
+
+impl IntoResponse for RpcResponseType {
+    fn into_response(self) -> axum::http::Response<Body> {
+        let body = match self {
+            RpcResponseType::Single(result) => serde_json::to_string(&result).unwrap(),
+            RpcResponseType::Multiple(results) => serde_json::to_string(&results).unwrap(),
+        };
+
+        axum::http::Response::new(Body::from(body))
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
