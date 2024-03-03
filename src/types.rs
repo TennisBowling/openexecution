@@ -6,6 +6,7 @@ use lru::LruCache;
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use ssz_types::{
     typenum::{U1048576, U1073741824},
     VariableList,
@@ -15,8 +16,9 @@ use strum::EnumString;
 use superstruct::superstruct;
 use tokio::sync::RwLock;
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Eq, Hash, EnumString)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum PayloadStatusStatus {
     Valid,
     Invalid,
@@ -270,7 +272,7 @@ impl EngineRpcRequest {
 
             return Ok(EngineRpcRequest {
                 method,
-                params: params,
+                params,
                 id: general_request.id,
                 jsonrpc: "2.0".to_string(),
             });
@@ -306,18 +308,73 @@ impl RpcResponse {
     }
 }
 
+#[derive(Debug, PartialEq, Deserialize_repr, Serialize_repr)]
+#[repr(i32)]
+pub enum ErrorCode {
+    ParseError = -32700,
+    InvalidRequest = -32600,
+    MethodNotFound = -32601,
+    InvalidParams = -32602,
+    InternalError = -32603,
+    ServerError = -32000,
+    UnknownPayload = -38001,
+    InvalidForkChoiceState = -38002,
+    InvalidPayloadAttributes = -38003,
+    TooLargeRequest = -38004,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonError {
+    pub code: ErrorCode,
+    pub message: String,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcErrorResponse {
-    pub error: serde_json::Value,
+    pub error: JsonError,
     pub id: u64,
     pub jsonrpc: String,
 }
 
 impl RpcErrorResponse {
-    pub fn new(error: serde_json::Value, id: u64) -> Self {
+    /*pub fn parse_error_generic(message: String, id: u64) -> Self {
         RpcErrorResponse {
-            error,
+            error: JsonError { code: ErrorCode::ParseError, message: message },
+            id,
+            jsonrpc: "2.0".to_string(),
+        }
+    }*/
+
+    pub fn params_parse_error(message: String, id: u64) -> Self {
+        RpcErrorResponse {
+            error: JsonError {
+                code: ErrorCode::InvalidParams,
+                message,
+            },
+            id,
+            jsonrpc: "2.0".to_string(),
+        }
+    }
+
+    pub fn server_error(message: String, id: u64) -> Self {
+        RpcErrorResponse {
+            error: JsonError {
+                code: ErrorCode::ServerError,
+                message,
+            },
+            id,
+            jsonrpc: "2.0".to_string(),
+        }
+    }
+
+    pub fn internal_error(message: String, id: u64) -> Self {
+        RpcErrorResponse {
+            error: JsonError {
+                code: ErrorCode::InternalError,
+                message,
+            },
             id,
             jsonrpc: "2.0".to_string(),
         }
@@ -408,6 +465,7 @@ pub struct State {
     pub passthrough_newpayload: bool,
     pub fcu_cache: RwLock<LruCache<ForkchoiceState, PayloadStatus>>,
     pub new_payload_cache: RwLock<LruCache<H256, PayloadStatus>>,
+    pub fork_config: ForkConfig,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -421,4 +479,26 @@ pub enum ForkName {
     Merge,
     Shanghai,
     Cancun,
+}
+
+pub struct ForkConfig {
+    //  pub MERGE_FORK_EPOCH: Option<u64> = Some(144896);
+    pub shanghai_fork_epoch: Option<u64>,
+    pub cancun_fork_epoch: Option<u64>,
+}
+
+impl ForkConfig {
+    pub fn mainnet() -> Self {
+        ForkConfig {
+            shanghai_fork_epoch: Some(194048),
+            cancun_fork_epoch: Some(269568),
+        }
+    }
+
+    pub fn holesky() -> Self {
+        ForkConfig {
+            shanghai_fork_epoch: Some(256),
+            cancun_fork_epoch: Some(29696),
+        }
+    }
 }

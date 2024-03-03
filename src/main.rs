@@ -19,9 +19,6 @@ use tracing_subscriber::filter::EnvFilter;
 use types::*;
 use verify_hash::*;
 
-//  const MERGE_FORK_EPOCH: Option<u64> = Some(144896);
-const SHANGHAI_FORK_EPOCH: Option<u64> = Some(194048);
-const CANCUN_FORK_EPOCH: Option<u64> = None;
 const VERSION: &str = "0.0.1";
 
 fn make_jwt(jwt_secret: &Arc<jsonwebtoken::EncodingKey>, timestamp: &i64) -> String {
@@ -35,13 +32,13 @@ fn make_jwt(jwt_secret: &Arc<jsonwebtoken::EncodingKey>, timestamp: &i64) -> Str
     .unwrap()
 }
 
-pub fn fork_name_at_epoch(epoch: u64) -> ForkName {
-    if let Some(fork_epoch) = CANCUN_FORK_EPOCH {
+pub fn fork_name_at_epoch(epoch: u64, fork_config: &ForkConfig) -> ForkName {
+    if let Some(fork_epoch) = fork_config.cancun_fork_epoch {
         if epoch >= fork_epoch {
             return ForkName::Cancun;
         }
     }
-    if let Some(fork_epoch) = SHANGHAI_FORK_EPOCH {
+    if let Some(fork_epoch) = fork_config.shanghai_fork_epoch {
         if epoch >= fork_epoch {
             return ForkName::Shanghai;
         }
@@ -49,22 +46,23 @@ pub fn fork_name_at_epoch(epoch: u64) -> ForkName {
     ForkName::Merge
 }
 
-fn timestamp_to_version(timestamp: &u64) -> Option<ForkName> {
+fn timestamp_to_version(timestamp: &u64, fork_config: &ForkConfig) -> Option<ForkName> {
     // 32 slots/epoch
     let slot = timestamp.checked_sub(1606824000)?.checked_div(12)?; // genesis time / seconds per slot
     let epoch = slot.checked_div(32)?; // slot / slots per epoch
-    Some(fork_name_at_epoch(epoch))
+    Some(fork_name_at_epoch(epoch, fork_config))
 }
 
 fn new_payload_serializer(
     mut request: EngineRpcRequest,
+    fork_config: &ForkConfig,
 ) -> Result<NewPayloadRequest, RpcErrorResponse> {
     let params = match request.params.as_array_mut() {
         Some(params_vec) => params_vec,
         None => {
             tracing::error!("Could not serialize newPayload's params into a vec.");
-            return Err(RpcErrorResponse::new(
-                json!("Could not serialize newPayload's params into a vec."),
+            return Err(RpcErrorResponse::params_parse_error(
+                "Could not serialize newPayload's params into a vec".to_string(),
                 request.id,
             ));
         }
@@ -74,8 +72,8 @@ fn new_payload_serializer(
         // params will have 3 fields: [ExecutionPayloadV3, expectedBlobVersionedHashes, ParentBeaconBlockRoot]
         if params.len() != 3 {
             tracing::error!("newPayloadV3's params did not have 3 elements.");
-            return Err(RpcErrorResponse::new(
-                json!("newPayloadV3's params did not have 3 elements."),
+            return Err(RpcErrorResponse::params_parse_error(
+                "newPayloadV3's params did not have 3 elements.".to_string(),
                 request.id,
             ));
         }
@@ -88,8 +86,8 @@ fn new_payload_serializer(
                     "Could not serialize ExecutionPayload from newPayloadV3: {}",
                     e
                 );
-                return Err(RpcErrorResponse::new(
-                    json!("Could not serialize ExecutionPayload."),
+                return Err(RpcErrorResponse::params_parse_error(
+                    "Could not serialize ExecutionPayload".to_string(),
                     request.id,
                 ));
             }
@@ -102,8 +100,8 @@ fn new_payload_serializer(
                     "Could not serialize VersionedHashes from newPayloadV3: {}",
                     e
                 );
-                return Err(RpcErrorResponse::new(
-                    json!("Could not serialize Versioned Hashes."),
+                return Err(RpcErrorResponse::params_parse_error(
+                    "Could not serialize Versioned Hashes.".to_string(),
                     request.id,
                 ));
             }
@@ -116,8 +114,8 @@ fn new_payload_serializer(
                     "Could not serialize ParentBeaconBlockRoot from newPayloadV3: {}",
                     e
                 );
-                return Err(RpcErrorResponse::new(
-                    json!("Could not serialize ParentBeaconBlockRoot."),
+                return Err(RpcErrorResponse::params_parse_error(
+                    "Could not serialize ParentBeaconBlockRoot.".to_string(),
                     request.id,
                 ));
             }
@@ -134,8 +132,8 @@ fn new_payload_serializer(
 
     if params.len() != 1 {
         tracing::error!("newPayloadV1|2's params did not have anything or something went wrong (newPayloadV1|2 called with more than just 1 param (ExecutionPayload).");
-        return Err(RpcErrorResponse::new(
-            json!("newPayloadV1|2's params did not have anything."),
+        return Err(RpcErrorResponse::params_parse_error(
+            "newPayloadV1|2's params did not have anything.".to_string(),
             request.id,
         ));
     }
@@ -146,8 +144,8 @@ fn new_payload_serializer(
                 Ok(timestamp) => timestamp,
                 Err(e) => {
                     tracing::error!("Execution payload timestamp is not representable as u64: {}. Timestamp: {}", e, timestamp);
-                    return Err(RpcErrorResponse::new(
-                        json!("Execution payload timestamp is not representable as u64"),
+                    return Err(RpcErrorResponse::params_parse_error(
+                        "Execution payload timestamp is not representable as u64".to_string(),
                         request.id,
                     ));
                 }
@@ -155,19 +153,19 @@ fn new_payload_serializer(
         }
         None => {
             tracing::error!("Execution payload does not have timestamp");
-            return Err(RpcErrorResponse::new(
-                json!("Execution payload does not have timestamp"),
+            return Err(RpcErrorResponse::params_parse_error(
+                "Execution payload does not have timestamp".to_string(),
                 request.id,
             ));
         }
     };
 
-    let fork_name = match timestamp_to_version(&timestamp) {
+    let fork_name = match timestamp_to_version(&timestamp, fork_config) {
         Some(fork_name) => fork_name,
         None => {
             tracing::error!("Error converting execution payload timestamp to fork name");
-            return Err(RpcErrorResponse::new(
-                json!("Error converting execution payload timestamp to fork name"),
+            return Err(RpcErrorResponse::params_parse_error(
+                "Error converting execution payload timestamp to fork name".to_string(),
                 request.id,
             ));
         }
@@ -181,8 +179,8 @@ fn new_payload_serializer(
                         "Could not serialize ExecutionPayloadV1 from newPayloadV1|2; Merge fork. Error: {}",
                         e
                     );
-                return Err(RpcErrorResponse::new(
-                    json!("Could not serialize ExecutionPayload."),
+                return Err(RpcErrorResponse::params_parse_error(
+                    "Could not serialize ExecutionPayload.".to_string(),
                     request.id,
                 ));
             }
@@ -195,8 +193,8 @@ fn new_payload_serializer(
                         "Could not serialize ExecutionPayloadV2 from newPayloadV2; Shanghai fork. Error: {}",
                         e
                     );
-                    return Err(RpcErrorResponse::new(
-                        json!("Could not serialize ExecutionPayload."),
+                    return Err(RpcErrorResponse::params_parse_error(
+                        "Could not serialize ExecutionPayload.".to_string(),
                         request.id,
                     ));
                 }
@@ -209,8 +207,8 @@ fn new_payload_serializer(
                         "Could not serialize ExecutionPayloadV3 from newPayloadV3; Cancun fork. Error: {}",
                         e
                     );
-                return Err(RpcErrorResponse::new(
-                    json!("Could not serialize ExecutionPayload."),
+                return Err(RpcErrorResponse::params_parse_error(
+                    "Could not serialize ExecutionPayload.".to_string(),
                     request.id,
                 ));
             }
@@ -232,8 +230,8 @@ fn fcu_serializer(
         Some(params_vec) => params_vec,
         None => {
             tracing::error!("Could not serialize fcU's params into a vec.");
-            return Err(RpcErrorResponse::new(
-                json!("Could not serialize fcU's params into a vec."),
+            return Err(RpcErrorResponse::params_parse_error(
+                "Could not serialize fcU's params into a vec.".to_string(),
                 request.id,
             ));
         }
@@ -241,8 +239,8 @@ fn fcu_serializer(
 
     if params.is_empty() {
         tracing::error!("CL fcU request does not have the required param.");
-        return Err(RpcErrorResponse::new(
-            json!("fcU request does not have the required param."),
+        return Err(RpcErrorResponse::params_parse_error(
+            "fcU request does not have the required param.".to_string(),
             request.id,
         ));
     }
@@ -253,8 +251,8 @@ fn fcu_serializer(
         Ok(fork_choice_state) => fork_choice_state,
         Err(e) => {
             tracing::error!("Could not serialize ForkchoiceState from fcU: {}", e);
-            return Err(RpcErrorResponse::new(
-                json!("Could not serialize ForkchoiceState."),
+            return Err(RpcErrorResponse::params_parse_error(
+                "Could not serialize ForkchoiceState.".to_string(),
                 request.id,
             ));
         }
@@ -307,6 +305,7 @@ fn parse_result<T: serde::de::DeserializeOwned>(resp: &str) -> Result<T, ParseEr
         Ok(serialized) => Ok(serialized),
         Err(e) => {
             tracing::error!(
+                node_response = resp,
                 "Couldn't deserialize response from node to type {}: {}",
                 type_name::<T>(),
                 e
@@ -412,11 +411,12 @@ async fn canonical_newpayload(
         make_auth_request_serialize(&state.auth_node, &request, jwt_secret)
             .await
             .map_err(|e| {
-                RpcErrorResponse::new(json!(format!("Error querying EL: {:?}", e)), request.id)
+                RpcErrorResponse::server_error(format!("Error querying EL: {:?}", e), request.id)
             })?;
 
     let id = request.id;
-    let block_hash = new_payload_serializer(request)?
+    let method = request.method.clone();
+    let block_hash = new_payload_serializer(request, &state.fork_config)?
         .execution_payload
         .block_hash();
 
@@ -425,10 +425,7 @@ async fn canonical_newpayload(
         .write()
         .await
         .push(block_hash, payloadstatus_result.clone());
-    tracing::debug!(
-        block_hash = ?block_hash,
-        "Cached newPayload from canonical node"
-    );
+    tracing::debug!(block_hash = ?block_hash, "Cached {:?} from canonical node", method);
 
     Ok(RpcResponse::new(json!(payloadstatus_result), id))
 }
@@ -438,7 +435,7 @@ async fn client_newpayload(
     state: Arc<State>,
 ) -> Result<RpcResponse, RpcErrorResponse> {
     let id = request.id;
-    let request_execution_payload = new_payload_serializer(request.clone())?;
+    let request_execution_payload = new_payload_serializer(request.clone(), &state.fork_config)?;
 
     match get_new_payload_with_retry(
         state.clone(),
@@ -467,8 +464,8 @@ async fn client_newpayload(
                 Err(e) => {
                     tracing::error!( block_hash = ?request_execution_payload.execution_payload.block_hash(),
                     "Client newPayload: Did not find in cache and payload block hash verification failed: {}", e);
-                    Err(RpcErrorResponse::new(
-                        json!("Payload block hash check failed"),
+                    Err(RpcErrorResponse::internal_error(
+                        "Payload block hash check failed".to_string(),
                         id,
                     ))
                 }
@@ -487,10 +484,11 @@ async fn canonical_fcu(
         make_auth_request_serialize(&state.auth_node, &request, jwt_secret)
             .await
             .map_err(|e| {
-                RpcErrorResponse::new(json!(format!("Error querying EL: {:?}", e)), request.id)
+                RpcErrorResponse::server_error(format!("Error querying EL: {:?}", e), request.id)
             })?;
 
     let id = request.id;
+    let method = request.method.clone();
     let forkchoice_state = fcu_serializer(request)?.fork_choice_state;
 
     state
@@ -499,7 +497,7 @@ async fn canonical_fcu(
         .await
         .push(forkchoice_state, fcu_result.payload_status.clone());
 
-    tracing::debug!("Cached fcU from canonical node");
+    tracing::debug!("Cached {:?} from canonical node", method);
 
     Ok(RpcResponse::new(json!(fcu_result), id))
 }
@@ -524,8 +522,8 @@ async fn client_fcu(
                     )
                     .await
                     .map_err(|e| {
-                        RpcErrorResponse::new(
-                            json!(format!("Error querying EL: {:?}", e)),
+                        RpcErrorResponse::server_error(
+                            format!("Error querying EL: {:?}", e),
                             request.id,
                         )
                     })?;
@@ -586,8 +584,8 @@ async fn pass_to_auth(
         Ok(el_res) => Ok(RpcResponse::new(el_res, request.id)),
         Err(e) => {
             tracing::error!("{:?} request failed: {}", request.method, e);
-            Err(RpcErrorResponse::new(
-                json!(format!("Request failed: {}", e)),
+            Err(RpcErrorResponse::server_error(
+                format!("Error querying EL: {}", e),
                 request.id,
             ))
         }
@@ -655,8 +653,8 @@ async fn handle_generic_request(
         Ok(el_res) => Ok(RpcResponse::new(el_res, request.id)),
         Err(e) => {
             tracing::error!("{:?} request failed: {}", request.method, e);
-            Err(RpcErrorResponse::new(
-                json!(format!("Request failed: {}", e)),
+            Err(RpcErrorResponse::server_error(
+                format!("Error querying EL: {}", e),
                 request.id,
             ))
         }
@@ -679,7 +677,7 @@ async fn canonical_route_all(
                         .into(),
                 );
             }
-            return RpcResponseType::Single(handle_generic_request(request, state).await.into());
+            RpcResponseType::Single(handle_generic_request(request, state).await.into())
         }
         RpcRequestType::Multiple(requests) => {
             let mut responses = Vec::with_capacity(requests.len());
@@ -694,9 +692,9 @@ async fn canonical_route_all(
                     handle_generic_request(request, state.clone()).await,
                 ));
             }
-            return RpcResponseType::Multiple(responses);
+            RpcResponseType::Multiple(responses)
         }
-    };
+    }
 }
 
 async fn client_route_all(
@@ -710,7 +708,7 @@ async fn client_route_all(
                     handle_client_engine(engine_request, state).await.into(),
                 );
             }
-            return RpcResponseType::Single(handle_generic_request(request, state).await.into());
+            RpcResponseType::Single(handle_generic_request(request, state).await.into())
         }
         RpcRequestType::Multiple(requests) => {
             let mut responses = Vec::with_capacity(requests.len());
@@ -724,9 +722,9 @@ async fn client_route_all(
                     handle_generic_request(request, state.clone()).await,
                 ));
             }
-            return RpcResponseType::Multiple(responses);
+            RpcResponseType::Multiple(responses)
         }
-    };
+    }
 }
 
 async fn get_status(
@@ -810,6 +808,11 @@ async fn main() {
                 .help("Pass through client newPayload requests to the auth node if not found in the cache (may present a DoS risk).")
                 .long_help("Pass through client newPayload requests to the auth node if not found in the cache (may present a DoS risk). The DoS risk stems from the possibility of the client requesting validation of many/old payloads that openexecution doesn't have cached.")
         )
+        .arg(
+            clap::Arg::with_name("holesky")
+                .long("holesky")
+                .help("Enables configuration for the holesky testnet")
+        )
         .get_matches();
 
     let port = matches.value_of("port").unwrap();
@@ -819,6 +822,7 @@ async fn main() {
     let node = matches.value_of("node").unwrap();
     let unauth_node = matches.value_of("unauth-node").unwrap();
     let passthrough_newpayload = matches.is_present("passthrough-newpayload");
+    let is_holesky = matches.is_present("holesky");
 
     let filter_string = format!("{},hyper=info", log_level);
 
@@ -873,12 +877,24 @@ async fn main() {
     let fcu_cache = RwLock::new(LruCache::new(NonZeroUsize::new(64).unwrap()));
     let new_payload_cache = RwLock::new(LruCache::new(NonZeroUsize::new(64).unwrap()));
 
+    let fork_config = match is_holesky {
+        true => {
+            tracing::info!("Running on holesky testnet");
+            ForkConfig::holesky()
+        }
+        false => {
+            tracing::info!("Running on mainnet");
+            ForkConfig::mainnet()
+        }
+    };
+
     let state = Arc::new(State {
         auth_node,
         unauth_node,
         passthrough_newpayload,
         fcu_cache,
         new_payload_cache,
+        fork_config,
     });
 
     let app = Router::new()
