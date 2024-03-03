@@ -734,7 +734,7 @@ async fn get_status(
 ) -> Result<extract::Json<RpcResponse>, extract::Json<RpcErrorResponse>> {
     let request = GeneralRpcRequest {
         method: "eth_syncing".to_string(),
-        params: json!(Vec::<String>::with_capacity(0)),
+        params: None,
         id: 1,
         jsonrpc: "2.0".to_string(),
     };
@@ -884,7 +884,7 @@ async fn main() {
     let app = Router::new()
         .route("/", axum::routing::post(client_route_all))
         .route("/canonical", axum::routing::post(canonical_route_all))
-        .route("/get", axum::routing::get(get_status))
+        .route("/status", axum::routing::get(get_status))
         .layer(Extension(state.clone()))
         .layer(DefaultBodyLimit::disable()); // no body limit since some requests can be quite large
 

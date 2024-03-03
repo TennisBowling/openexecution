@@ -5,6 +5,7 @@ use ethereum_types::{Address, H256, H64, U256};
 use lru::LruCache;
 use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use ssz_types::{
     typenum::{U1048576, U1073741824},
     VariableList,
@@ -260,9 +261,16 @@ impl EngineRpcRequest {
                 }
             };
 
+            let params = match general_request.params.clone() {
+                Some(params) => params,
+                None => {
+                    json!(Vec::<bool>::with_capacity(0))
+                }
+            };
+
             return Ok(EngineRpcRequest {
                 method,
-                params: general_request.params.clone(),
+                params: params,
                 id: general_request.id,
                 jsonrpc: "2.0".to_string(),
             });
@@ -275,7 +283,7 @@ impl EngineRpcRequest {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct GeneralRpcRequest {
     pub method: String,
-    pub params: serde_json::Value,
+    pub params: Option<serde_json::Value>,
     pub id: u64,
     pub jsonrpc: String,
 }
