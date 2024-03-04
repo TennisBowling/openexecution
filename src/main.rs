@@ -19,7 +19,7 @@ use tracing_subscriber::filter::EnvFilter;
 use types::*;
 use verify_hash::*;
 
-const VERSION: &str = "0.0.1";
+const VERSION: &str = "2.0.0";
 
 fn make_jwt(jwt_secret: &Arc<jsonwebtoken::EncodingKey>, timestamp: &i64) -> String {
     jsonwebtoken::encode(
@@ -454,7 +454,7 @@ async fn client_newpayload(
             }
 
             // check if hash is OK
-            match verify_payload_block_hash(&request_execution_payload.execution_payload) {
+            match verify_payload_block_hash(&request_execution_payload.execution_payload, request_execution_payload.parent_beacon_block_root) {
                 Ok(()) => {
                     // hash check is fine, return SYNCING
                     tracing::warn!(block_hash = ?request_execution_payload.execution_payload.block_hash(),
@@ -745,14 +745,14 @@ async fn get_status(
 #[tokio::main]
 async fn main() {
     let matches = clap::App::new("openexecution")
-        .version("0.1.0")
+        .version(VERSION)
         .author("TennisBowling <tennisbowling@tennisbowling.com>")
         .about(
             "OpenExecution is a program that lets you control multiple CL's with one canonical CL",
         )
         .setting(clap::AppSettings::ColoredHelp)
         .long_version(
-            "OpenExecution version 0.1.0 by TennisBowling <tennisbowling@tennisbowling.com>",
+            &*format!("OpenExecution version {} by TennisBowling <tennisbowling@tennisbowling.com>", VERSION)
         )
         .arg(
             clap::Arg::with_name("port")
