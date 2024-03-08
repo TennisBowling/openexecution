@@ -515,7 +515,7 @@ async fn client_fcu(
     match get_fcu_with_retry(state.clone(), &fcu_request.fork_choice_state).await {
         Some(payload_status) => {
             // check if they want to build a block
-            if fcu_request.payload_attributes.is_some() {
+            if fcu_request.payload_attributes.is_some_and(|x| !x.is_null()) {
                 tracing::debug!("Client wants to build a block");
                 if payload_status.status == PayloadStatusStatus::Valid {
                     // pass along to EL since the status would be VALID
