@@ -454,7 +454,10 @@ async fn client_newpayload(
             }
 
             // check if hash is OK
-            match verify_payload_block_hash(&request_execution_payload.execution_payload, request_execution_payload.parent_beacon_block_root) {
+            match verify_payload_block_hash(
+                &request_execution_payload.execution_payload,
+                request_execution_payload.parent_beacon_block_root,
+            ) {
                 Ok(()) => {
                     // hash check is fine, return SYNCING
                     tracing::warn!(block_hash = ?request_execution_payload.execution_payload.block_hash(),
@@ -513,8 +516,10 @@ async fn client_fcu(
         Some(payload_status) => {
             // check if they want to build a block
             if fcu_request.payload_attributes.is_some() {
+                tracing::debug!("Client wants to build a block");
                 if payload_status.status == PayloadStatusStatus::Valid {
                     // pass along to EL since the status would be VALID
+                    tracing::debug!("Client fcU was VALID, forwarding payloadAttributes");
                     let fcu_result = make_auth_request(
                         &state.auth_node,
                         &request,
