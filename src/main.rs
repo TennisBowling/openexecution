@@ -340,6 +340,7 @@ async fn make_auth_request_serialize<T: serde::de::DeserializeOwned>(
     payload: &EngineRpcRequest,
     jwt_secret: String,
 ) -> Result<T, Box<dyn Error>> {
+    let start = std::time::Instant::now();
     let res = node
         .client
         .post(&node.url)
@@ -350,6 +351,8 @@ async fn make_auth_request_serialize<T: serde::de::DeserializeOwned>(
         .await?
         .text()
         .await?;
+    let resp_time = start.elapsed().as_millis();
+    tracing::debug!("{:?} request from canonical CL took {}ms", payload.method, resp_time);
 
     Ok(parse_result::<T>(&res)
         .map_err(|e| format!("Parse error while making request to auth node: {:?}", e))?)
@@ -533,7 +536,7 @@ async fn client_fcu(
                         )
                     })?;
 
-                    return Ok(RpcResponse::new(json!(fcu_result), id));
+                    return Ok(RpcResponse::new(fcu_result, id));
                 } else {
                     tracing::warn!("Tried passing client CL payloadAttributes but cached EL response is not VALID");
                     return Ok(RpcResponse::new(
