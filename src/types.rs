@@ -14,7 +14,7 @@ use ssz_types::{
 use std::{fmt::Debug, str::FromStr, sync::Arc};
 use strum::EnumString;
 use superstruct::superstruct;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::sync::broadcast;
 use tokio::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Eq, Hash, EnumString)]
@@ -515,13 +515,13 @@ pub struct AuthNode {
 
 pub struct PayloadCache<K, V> {
     pub lru: Cache<K, V>,
-    pub channels: Cache<K, UnboundedSender<V>>,
+    pub channels: Cache<K, broadcast::Sender<V>>,
 }
 
 impl<K, V> PayloadCache<K, V>
 where
     K: std::hash::Hash + std::cmp::Eq + Clone + Send + Sync + 'static + Debug,
-    V: std::hash::Hash + Send + Sync + Clone + 'static,
+    V: std::hash::Hash + Send + Sync + Clone + 'static + Debug,
 {
     pub fn new() -> Self {
         PayloadCache {
@@ -532,29 +532,26 @@ where
 
     pub async fn insert(&self, key: K, value: V) {
         tracing::info!("Inserting for key {:?}", key);
-        tokio::join!(
-            self.lru.insert(key.clone(), value.clone()),
-            async move {
-                if let Some(sender) = self.channels.remove(&key).await {
-                    let _ = sender.send(value);
-                }
-            },
-        );
+
+        self.lru.insert(key.clone(), value.clone()).await;
+
+        if let Some(sender) = self.channels.remove(&key).await {
+            sender.send(value).unwrap();
+        }
+  
     }
 
     pub async fn get(&self, key: &K) -> Option<V> {
         if let Some(value) = self.lru.get(key).await {
-            tracing::info!("got value for key {:?}", key);
+            tracing::info!("Got value for key {:?}", key);
             return Some(value);
         }
 
-        let (sender, mut receiver) = unbounded_channel();
-        self.channels.insert(key.clone(), sender).await;
+        tracing::warn!("Waiting for value to be inserted for key {:?}", key);
+        let mut receiver = self.channels.entry(key.clone()).or_insert(broadcast::channel(1).0).await.into_value().subscribe();
 
-        tracing::warn!("waiting for value to be inserted for key {:?}", key);
-        tokio::time::timeout(Duration::from_millis(8000), receiver.recv())
-            .await
-            .ok()?
+        tokio::time::timeout(Duration::from_millis(7000), receiver.recv()).await.ok().map(|x| x.ok())?
+    
     }
 }
 
