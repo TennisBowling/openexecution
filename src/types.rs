@@ -244,7 +244,11 @@ pub enum EngineMethod {
     engine_forkchoiceUpdatedV3,
     engine_getPayloadV3,
     engine_getClientVersionV1,
+    // Prague
     engine_newPayloadV4,
+    engine_getPayloadV4,
+    engine_getPayloadBodiesByHashV2,
+    engine_getPayloadBodiesByRangeV2,
 }
 
 #[derive(Debug)]

@@ -570,10 +570,13 @@ async fn handle_canonical_engine(
         EngineMethod::engine_getPayloadV1
         | EngineMethod::engine_getPayloadV2
         | EngineMethod::engine_getPayloadV3
+        | EngineMethod::engine_getPayloadV4
         | EngineMethod::engine_exchangeCapabilities
         | EngineMethod::engine_exchangeTransitionConfigurationV1
         | EngineMethod::engine_getPayloadBodiesByHashV1
         | EngineMethod::engine_getPayloadBodiesByRangeV1
+        | EngineMethod::engine_getPayloadBodiesByHashV2
+        | EngineMethod::engine_getPayloadBodiesByRangeV2
         | EngineMethod::engine_getClientVersionV1 => {
             pass_to_auth(request, state, Some(jwt_secret)).await
         }
@@ -595,10 +598,13 @@ async fn handle_client_engine(
         EngineMethod::engine_getPayloadV1
         | EngineMethod::engine_getPayloadV2
         | EngineMethod::engine_getPayloadV3
+        | EngineMethod::engine_getPayloadV4
         | EngineMethod::engine_exchangeCapabilities
         | EngineMethod::engine_exchangeTransitionConfigurationV1
         | EngineMethod::engine_getPayloadBodiesByHashV1
         | EngineMethod::engine_getPayloadBodiesByRangeV1
+        | EngineMethod::engine_getPayloadBodiesByHashV2
+        | EngineMethod::engine_getPayloadBodiesByRangeV2
         | EngineMethod::engine_getClientVersionV1 => pass_to_auth(request, state, None).await,
     }
 }
