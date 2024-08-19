@@ -552,7 +552,7 @@ where
         self.channels.insert(key.clone(), sender).await;
 
         tracing::warn!("waiting for value to be inserted for key {:?}", key);
-        tokio::time::timeout(Duration::from_millis(7000), receiver.recv())
+        tokio::time::timeout(Duration::from_millis(8000), receiver.recv())
             .await
             .ok()?
     }
