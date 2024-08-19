@@ -531,6 +531,7 @@ where
     }
 
     pub async fn insert(&self, key: K, value: V) {
+        tracing::info!("Inserting for key {:?}", key);
         tokio::join!(
             self.lru.insert(key.clone(), value.clone()),
             async move {
