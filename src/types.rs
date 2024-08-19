@@ -11,7 +11,7 @@ use ssz_types::{
     typenum::{U1048576, U1073741824, U16, U8192},
     VariableList,
 };
-use std::{str::FromStr, sync::Arc};
+use std::{fmt::Debug, str::FromStr, sync::Arc};
 use strum::EnumString;
 use superstruct::superstruct;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -492,7 +492,7 @@ pub struct GetPayloadResponse {
     pub should_override_builder: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ForkchoiceState {
     head_block_hash: H256,
@@ -520,7 +520,7 @@ pub struct PayloadCache<K, V> {
 
 impl<K, V> PayloadCache<K, V>
 where
-    K: std::hash::Hash + std::cmp::Eq + Clone + Send + Sync + 'static,
+    K: std::hash::Hash + std::cmp::Eq + Clone + Send + Sync + 'static + Debug,
     V: std::hash::Hash + Send + Sync + Clone + 'static,
 {
     pub fn new() -> Self {
@@ -531,21 +531,26 @@ where
     }
 
     pub async fn insert(&self, key: K, value: V) {
-        tokio::join!(self.lru.insert(key.clone(), value.clone()), async move {
-            if let Some(sender) = self.channels.remove(&key).await {
-                let _ = sender.send(value);
-            }
-        });
+        tokio::join!(
+            self.lru.insert(key.clone(), value.clone()),
+            async move {
+                if let Some(sender) = self.channels.remove(&key).await {
+                    let _ = sender.send(value);
+                }
+            },
+        );
     }
 
     pub async fn get(&self, key: &K) -> Option<V> {
         if let Some(value) = self.lru.get(key).await {
+            tracing::info!("got value for key {:?}", key);
             return Some(value);
         }
 
         let (sender, mut receiver) = unbounded_channel();
         self.channels.insert(key.clone(), sender).await;
 
+        tracing::warn!("waiting for value to be inserted for key {:?}", key);
         tokio::time::timeout(Duration::from_millis(7000), receiver.recv())
             .await
             .ok()?
