@@ -1,20 +1,21 @@
 #![allow(non_camel_case_types)]
 use crate::axum::body::Body;
 use axum::response::IntoResponse;
-use ethereum_types::{Address, H256, H64, U256};
-use lru::LruCache;
+use ethereum_types::{Address, Signature, H256, H64, U256};
 use metastruct::metastruct;
+use moka::future::Cache;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use ssz_types::{
-    typenum::{U1048576, U1073741824},
+    typenum::{U1048576, U1073741824, U16, U8192},
     VariableList,
 };
 use std::{str::FromStr, sync::Arc};
 use strum::EnumString;
 use superstruct::superstruct;
-use tokio::sync::RwLock;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Eq, Hash, EnumString)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -57,8 +58,40 @@ pub struct Withdrawal {
     pub amount: u64,
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositRequest {
+    pub pubkey: Vec<u8>,
+    pub withdrawal_credentials: H256,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub amount: u64,
+    pub signature: Signature,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WithdrawalRequest {
+    pub source_address: Address,
+    pub validator_pubkey: Vec<u8>,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub amount: u64,
+}
+
+// TODO: take a look at this. also try to fix the Vec<u8> into a better type for this and Withdrawal + DepositRequests
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsolidationRequest {
+    pub source_address: Address,
+    pub source_pubkey: Vec<u8>,
+    pub target_pubkey: Vec<u8>,
+}
+
+// TODO: consider not using getter(copy) here. Not sure that we need the Result<T, E> instead of Result<&T, E>
+
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2, V3, V4),
     variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase"))
 )]
 #[derive(Serialize, Deserialize, Clone)]
@@ -105,6 +138,12 @@ pub struct ExecutionPayload {
     #[superstruct(only(V3), partial_getter(copy))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
+    #[superstruct(only(V4))]
+    pub deposit_requests: VariableList<DepositRequest, U8192>,
+    #[superstruct(only(V4))]
+    pub withdrawal_requests: VariableList<WithdrawalRequest, U16>,
+    #[superstruct(only(V4))] // TODO: Turn this into a VariableList
+    pub consolidation_requests: Vec<ConsolidationRequest>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -204,6 +243,8 @@ pub enum EngineMethod {
     engine_newPayloadV3,
     engine_forkchoiceUpdatedV3,
     engine_getPayloadV3,
+    engine_getClientVersionV1,
+    engine_newPayloadV4,
 }
 
 #[derive(Debug)]
@@ -472,12 +513,51 @@ pub struct AuthNode {
     pub jwt_secret: Arc<jsonwebtoken::EncodingKey>,
 }
 
+pub struct PayloadCache<K, V> {
+    pub lru: Cache<K, V>,
+    pub channels: Cache<K, UnboundedSender<V>>,
+}
+
+impl<K, V> PayloadCache<K, V>
+where
+    K: std::hash::Hash + std::cmp::Eq + Clone + Send + Sync + 'static,
+    V: std::hash::Hash + Send + Sync + Clone + 'static,
+{
+    pub fn new() -> Self {
+        PayloadCache {
+            lru: Cache::builder().max_capacity(64).build(),
+            channels: Cache::builder().max_capacity(64).build(),
+        }
+    }
+
+    pub async fn insert(&self, key: K, value: V) {
+        tokio::join!(self.lru.insert(key.clone(), value.clone()), async move {
+            if let Some(sender) = self.channels.remove(&key).await {
+                let _ = sender.send(value);
+            }
+        });
+    }
+
+    pub async fn get(&self, key: &K) -> Option<V> {
+        if let Some(value) = self.lru.get(key).await {
+            return Some(value);
+        }
+
+        let (sender, mut receiver) = unbounded_channel();
+        self.channels.insert(key.clone(), sender).await;
+
+        tokio::time::timeout(Duration::from_millis(7000), receiver.recv())
+            .await
+            .ok()?
+    }
+}
+
 pub struct State {
     pub auth_node: Arc<AuthNode>,
     pub unauth_node: Arc<Node>,
     pub passthrough_newpayload: bool,
-    pub fcu_cache: RwLock<LruCache<ForkchoiceState, PayloadStatus>>,
-    pub new_payload_cache: RwLock<LruCache<H256, PayloadStatus>>,
+    pub fcu_cache: PayloadCache<ForkchoiceState, PayloadStatus>,
+    pub new_payload_cache: PayloadCache<H256, PayloadStatus>,
     pub fork_config: ForkConfig,
 }
 
@@ -492,26 +572,30 @@ pub enum ForkName {
     Merge,
     Shanghai,
     Cancun,
+    Prague,
 }
 
 pub struct ForkConfig {
     //  pub MERGE_FORK_EPOCH: Option<u64> = Some(144896);
-    pub shanghai_fork_epoch: Option<u64>,
-    pub cancun_fork_epoch: Option<u64>,
+    pub shanghai_fork_epoch: u64,
+    pub cancun_fork_epoch: u64,
+    pub prague_fork_epoch: u64,
 }
 
 impl ForkConfig {
     pub fn mainnet() -> Self {
         ForkConfig {
-            shanghai_fork_epoch: Some(194048),
-            cancun_fork_epoch: Some(269568),
+            shanghai_fork_epoch: 194048,
+            cancun_fork_epoch: 269568,
+            prague_fork_epoch: 99999999999999,
         }
     }
 
     pub fn holesky() -> Self {
         ForkConfig {
-            shanghai_fork_epoch: Some(256),
-            cancun_fork_epoch: Some(29696),
+            shanghai_fork_epoch: 256,
+            cancun_fork_epoch: 29696,
+            prague_fork_epoch: 99999999999999,
         }
     }
 }
