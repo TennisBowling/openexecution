@@ -537,12 +537,11 @@ where
     pub async fn insert(&self, key: K, value: V) {
         tracing::info!("Inserting for key {:?}", key);
 
-        self.lru.insert(key.clone(), value.clone()).await;
-
-        if let Some(sender) = self.channels.remove(&key).await {
-            sender.send(value).unwrap();
-        }
-  
+        tokio::join!(self.lru.insert(key.clone(), value.clone()), async move {
+            if let Some(sender) = self.channels.remove(&key).await {
+                sender.send(value).unwrap();
+            }
+        });
     }
 
     pub async fn get(&self, key: &K) -> Option<V> {
@@ -552,10 +551,18 @@ where
         }
 
         tracing::warn!("Waiting for value to be inserted for key {:?}", key);
-        let mut receiver = self.channels.entry(key.clone()).or_insert(broadcast::channel(1).0).await.into_value().subscribe();
+        let mut receiver = self
+            .channels
+            .entry(key.clone())
+            .or_insert(broadcast::channel(1).0)
+            .await
+            .into_value()
+            .subscribe();
 
-        tokio::time::timeout(Duration::from_millis(7000), receiver.recv()).await.ok().map(|x| x.ok())?
-    
+        tokio::time::timeout(Duration::from_millis(7000), receiver.recv())
+            .await
+            .ok()
+            .map(|x| x.ok())?
     }
 }
 
