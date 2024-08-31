@@ -469,10 +469,10 @@ async fn client_fcu(
         Some(payload_status) => {
             // check if they want to build a block
             if fcu_request.payload_attributes.is_some_and(|x| !x.is_null()) {
-                tracing::debug!("Client wants to build a block");
+                tracing::debug!("Client forkchoiceUpdated: Client wants to build a block");
                 if payload_status.status == PayloadStatusStatus::Valid {
                     // pass along to EL since the status would be VALID
-                    tracing::debug!("Client fcU was VALID, forwarding payloadAttributes");
+                    tracing::debug!("Client forkchoiceUpdated was VALID, forwarding payloadAttributes");
                     let fcu_result = make_auth_request(
                         &state.auth_node,
                         &request,
@@ -481,14 +481,14 @@ async fn client_fcu(
                     .await
                     .map_err(|e| {
                         RpcErrorResponse::server_error(
-                            format!("Error querying EL: {:?}", e),
+                            format!("Client forkchoiceUpdated: Error querying EL: {:?}", e),
                             request.id,
                         )
                     })?;
 
                     return Ok(RpcResponse::new(fcu_result, id));
                 } else {
-                    tracing::warn!("Tried passing client CL payloadAttributes but cached EL response is not VALID");
+                    tracing::warn!("Client forkchoiceUpdated: Tried passing client CL payloadAttributes but cached EL response is not VALID");
                     return Ok(RpcResponse::new(
                         json!(ForkchoiceUpdatedResponse {
                             payload_status: PayloadStatus::new_syncing(),
@@ -508,7 +508,7 @@ async fn client_fcu(
             ))
         }
         None => {
-            tracing::warn!("Client newPayload: Did not find in cache, returning SYNCING");
+            tracing::warn!("Client forkchoiceUpdated: Did not find in cache, returning SYNCING");
             Ok(RpcResponse::new(
                 json!(ForkchoiceUpdatedResponse {
                     payload_status: PayloadStatus::new_syncing(),

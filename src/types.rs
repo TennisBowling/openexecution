@@ -559,7 +559,7 @@ where
             .into_value()
             .subscribe();
 
-        tokio::time::timeout(Duration::from_millis(7000), receiver.recv())
+        tokio::time::timeout(Duration::from_millis(7800), receiver.recv())
             .await
             .ok()
             .map(|x| x.ok())?
