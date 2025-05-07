@@ -247,8 +247,6 @@ pub enum EngineMethod {
     // Prague
     engine_newPayloadV4,
     engine_getPayloadV4,
-    engine_getPayloadBodiesByHashV2,
-    engine_getPayloadBodiesByRangeV2,
 }
 
 #[derive(Debug)]
