@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use ssz_types::{
-    typenum::{U1048576, U1073741824, U16, U8192},
+    typenum::{U1, U1048576, U1073741824, U16, U8192},
     VariableList,
 };
 use std::{fmt::Debug, str::FromStr, sync::Arc};
@@ -56,36 +56,6 @@ pub struct Withdrawal {
     pub address: Address,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub amount: u64,
-}
-
-#[derive(Deserialize, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct DepositRequest {
-    pub pubkey: Vec<u8>,
-    pub withdrawal_credentials: H256,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub amount: u64,
-    pub signature: Signature,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub index: u64,
-}
-
-#[derive(Deserialize, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct WithdrawalRequest {
-    pub source_address: Address,
-    pub validator_pubkey: Vec<u8>,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub amount: u64,
-}
-
-// TODO: take a look at this. also try to fix the Vec<u8> into a better type for this and Withdrawal + DepositRequests
-#[derive(Deserialize, Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ConsolidationRequest {
-    pub source_address: Address,
-    pub source_pubkey: Vec<u8>,
-    pub target_pubkey: Vec<u8>,
 }
 
 // TODO: consider not using getter(copy) here. Not sure that we need the Result<T, E> instead of Result<&T, E>
@@ -465,11 +435,49 @@ pub struct ForkchoiceUpdatedResponse {
     pub payload_id: Option<String>,
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositRequest {
+    pub pubkey: Vec<u8>,
+    pub withdrawal_credentials: H256,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub amount: u64,
+    pub signature: Signature,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WithdrawalRequest {
+    pub source_address: Address,
+    pub validator_pubkey: Vec<u8>,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub amount: u64,
+}
+
+// TODO: take a look at this. also try to fix the Vec<u8> into a better type for this and Withdrawal + DepositRequests
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsolidationRequest {
+    pub source_address: Address,
+    pub source_pubkey: Vec<u8>,
+    pub target_pubkey: Vec<u8>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ExecutionRequests {
+    pub deposits: VariableList<DepositRequest, U8192>, // U8192 = max deposit requests per payload
+    pub withdrawals: VariableList<WithdrawalRequest, U16>,
+    pub consolidations: VariableList<ConsolidationRequest, U1>,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct NewPayloadRequest {
     pub execution_payload: ExecutionPayload,
     pub expected_blob_versioned_hashes: Option<Vec<H256>>,
     pub parent_beacon_block_root: Option<H256>,
+    pub execution_requests: Option<ExecutionRequests>,
 }
 
 #[superstruct(

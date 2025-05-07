@@ -65,37 +65,36 @@ pub fn newpayload_serializer(
     if request.method == EngineMethod::engine_newPayloadV3
         || request.method == EngineMethod::engine_newPayloadV4
     {
-        // params will have 3 fields: [ExecutionPayloadV3 | ExecutionPayloadV4 , expectedBlobVersionedHashes, ParentBeaconBlockRoot]
-        if params.len() != 3 {
-            return Err("newPayloadV3's params did not have 3 elements.".to_string());
+        // params will have possibly fields: [ExecutionPayloadV3, expectedBlobVersionedHashes, ParentBeaconBlockRoot, executionRequests (for V4)]
+        if params.len() < 3 {
+            return Err("newPayloadV3|4's params did not have at least 3 elements.".to_string());
         }
 
-        let execution_payload: ExecutionPayload =
-            if request.method == EngineMethod::engine_newPayloadV3 {
-                ExecutionPayload::V3(match serde_json::from_value(params[0].take()) {
-                    // direct getting is safe here since we checked that we have least 3 elements
-                    Ok(execution_payload) => execution_payload,
-                    Err(e) => {
-                        tracing::error!(
-                            "Could not serialize ExecutionPayload from newPayloadV3: {}",
-                            e
-                        );
-                        return Err("Could not serialize ExecutionPayload".to_string());
-                    }
-                })
-            } else {
-                ExecutionPayload::V4(match serde_json::from_value(params[0].take()) {
-                    // direct getting is safe here since we checked that we have least 3 elements
-                    Ok(execution_payload) => execution_payload,
-                    Err(e) => {
-                        tracing::error!(
-                            "Could not serialize ExecutionPayload from newPayloadV4: {}",
-                            e
-                        );
-                        return Err("Could not serialize ExecutionPayload".to_string());
-                    }
-                })
-            };
+        // newPayloadV4 uses ExecutionPayloadV3 just like newPayloadV3
+        let execution_payload: ExecutionPayloadV3 = match serde_json::from_value(params[0].take()) {
+            // direct getting is safe here since we checked that we have least 3 elements
+            Ok(execution_payload) => execution_payload,
+            Err(e) => {
+                tracing::error!(
+                    "Could not serialize ExecutionPayload from newPayloadV3: {}",
+                    e
+                );
+                return Err("Could not serialize ExecutionPayload".to_string());
+            }
+        };
+        /*else {
+            ExecutionPayload::V4(match serde_json::from_value(params[0].take()) {
+                // direct getting is safe here since we checked that we have least 3 elements
+                Ok(execution_payload) => execution_payload,
+                Err(e) => {
+                    tracing::error!(
+                        "Could not serialize ExecutionPayload from newPayloadV4: {}",
+                        e
+                    );
+                    return Err("Could not serialize ExecutionPayload".to_string());
+                }
+            })
+        };*/
 
         let versioned_hashes: Vec<H256> = match serde_json::from_value(params[1].take()) {
             Ok(versioned_hashes) => versioned_hashes,
@@ -119,10 +118,31 @@ pub fn newpayload_serializer(
             }
         };
 
+        let mut execution_requests: Option<ExecutionRequests> = None;
+
+        if request.method == EngineMethod::engine_getPayloadV4 {
+            if params.len() != 4 {
+                tracing::error!("newPayloadV4 does not have 4 params");
+                return Err("newPayloadV4 does not have 4 params".to_string());
+            }
+
+            execution_requests = Some(match serde_json::from_value(params[3].take()) {
+                Ok(er) => er,
+                Err(e) => {
+                    tracing::error!(
+                        "Could not serialize ExecutionRequests from newPayloadV4: {}",
+                        e
+                    );
+                    return Err("Could not serialize ExecutionRequests.".to_string());
+                }
+            });
+        }
+
         return Ok(NewPayloadRequest {
-            execution_payload,
+            execution_payload: ExecutionPayload::V3(execution_payload),
             expected_blob_versioned_hashes: Some(versioned_hashes),
             parent_beacon_block_root: Some(parent_beacon_block_root),
+            execution_requests,
         });
     }
 
@@ -190,6 +210,7 @@ pub fn newpayload_serializer(
         execution_payload,
         expected_blob_versioned_hashes: None,
         parent_beacon_block_root: None,
+        execution_requests: None,
     })
 }
 
