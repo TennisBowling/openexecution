@@ -214,9 +214,14 @@ pub enum EngineMethod {
     engine_forkchoiceUpdatedV3,
     engine_getPayloadV3,
     engine_getClientVersionV1,
+    // Cancun
+    engine_getBlobsV1,
     // Prague
     engine_newPayloadV4,
     engine_getPayloadV4,
+    // Osaka
+    engine_getBlobsV2,
+    engine_getPayloadV5,
 }
 
 #[derive(Debug)]
@@ -481,7 +486,7 @@ pub struct NewPayloadRequest {
 }
 
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2, V3, V4, V5),
     variant_attributes(derive(Serialize, Deserialize, Clone), serde(rename_all = "camelCase"))
 )]
 #[derive(Serialize, Deserialize, Clone)]
@@ -491,15 +496,17 @@ pub struct GetPayloadResponse {
     pub execution_payload: ExecutionPayloadV1,
     #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
     pub execution_payload: ExecutionPayloadV2,
-    #[superstruct(only(V3), partial_getter(rename = "execution_payload_v3"))]
+    #[superstruct(only(V3, V4, V5), partial_getter(rename = "execution_payload_v3"))]
     pub execution_payload: ExecutionPayloadV3,
     #[serde(with = "serde_utils::u256_hex_be")]
-    #[superstruct(getter(copy))]
+    #[superstruct(getter(copy), only(V2, V3, V4, V5))]
     pub block_value: U256,
-    #[superstruct(only(V3))]
+    #[superstruct(only(V3, V4, V5))]
     pub blobs_bundle: serde_json::Value,
-    #[superstruct(only(V3), partial_getter(copy))]
+    #[superstruct(only(V3, V4, V5), partial_getter(copy))]
     pub should_override_builder: bool,
+    #[superstruct(only(V4, V5))]
+    pub execution_requests: serde_json::Value,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Debug)]
@@ -593,6 +600,7 @@ pub enum ForkName {
     Shanghai,
     Cancun,
     Prague,
+    Osaka,
 }
 
 pub struct ForkConfig {
@@ -600,6 +608,7 @@ pub struct ForkConfig {
     pub shanghai_fork_epoch: u64,
     pub cancun_fork_epoch: u64,
     pub prague_fork_epoch: u64,
+    pub osaka_fork_epoch: u64,
 }
 
 impl ForkConfig {
@@ -608,6 +617,7 @@ impl ForkConfig {
             shanghai_fork_epoch: 194048,
             cancun_fork_epoch: 269568,
             prague_fork_epoch: 99999999999999,
+            osaka_fork_epoch: 99999999999999,
         }
     }
 
@@ -616,6 +626,7 @@ impl ForkConfig {
             shanghai_fork_epoch: 256,
             cancun_fork_epoch: 29696,
             prague_fork_epoch: 99999999999999,
+            osaka_fork_epoch: 99999999999999,
         }
     }
 }

@@ -30,6 +30,10 @@ fn make_jwt(jwt_secret: &Arc<jsonwebtoken::EncodingKey>, timestamp: &i64) -> Str
 }
 
 pub fn fork_name_at_epoch(epoch: u64, fork_config: &ForkConfig) -> ForkName {
+    if epoch >= fork_config.osaka_fork_epoch {
+        return ForkName::Osaka;
+    }
+
     if epoch >= fork_config.prague_fork_epoch {
         return ForkName::Prague;
     }
@@ -120,7 +124,7 @@ pub fn newpayload_serializer(
 
         let mut execution_requests: Option<ExecutionRequests> = None;
 
-        if request.method == EngineMethod::engine_getPayloadV4 {
+        if request.method == EngineMethod::engine_newPayloadV4 {
             if params.len() != 4 {
                 tracing::error!("newPayloadV4 does not have 4 params");
                 return Err("newPayloadV4 does not have 4 params".to_string());
@@ -204,6 +208,7 @@ pub fn newpayload_serializer(
         }
         ForkName::Cancun => unreachable!("File an issue on github. This should never happen. Matched Cancun fork name even though didn't match previous if newPayloadV3 or params.len != 1."),
         ForkName::Prague => unreachable!("File an issue on github. This should never happen. Matched Prague fork name even though didn't match previous if newPayloadV3 or params.len != 1."),
+        ForkName::Osaka => unreachable!("File an issue on github. This should never happen. Matched Osaka fork name even though didn't match previous if newPayloadV3 or params.len != 1."),
     };
 
     Ok(NewPayloadRequest {
@@ -592,10 +597,13 @@ async fn handle_canonical_engine(
         | EngineMethod::engine_getPayloadV2
         | EngineMethod::engine_getPayloadV3
         | EngineMethod::engine_getPayloadV4
+        | EngineMethod::engine_getPayloadV5
         | EngineMethod::engine_exchangeCapabilities
         | EngineMethod::engine_exchangeTransitionConfigurationV1
         | EngineMethod::engine_getPayloadBodiesByHashV1
         | EngineMethod::engine_getPayloadBodiesByRangeV1
+        | EngineMethod::engine_getBlobsV1
+        | EngineMethod::engine_getBlobsV2
         | EngineMethod::engine_getClientVersionV1 => {
             pass_to_auth(request, state, Some(jwt_secret)).await
         }
@@ -618,10 +626,13 @@ async fn handle_client_engine(
         | EngineMethod::engine_getPayloadV2
         | EngineMethod::engine_getPayloadV3
         | EngineMethod::engine_getPayloadV4
+        | EngineMethod::engine_getPayloadV5
         | EngineMethod::engine_exchangeCapabilities
         | EngineMethod::engine_exchangeTransitionConfigurationV1
         | EngineMethod::engine_getPayloadBodiesByHashV1
         | EngineMethod::engine_getPayloadBodiesByRangeV1
+        | EngineMethod::engine_getBlobsV1
+        | EngineMethod::engine_getBlobsV2
         | EngineMethod::engine_getClientVersionV1 => pass_to_auth(request, state, None).await,
     }
 }
