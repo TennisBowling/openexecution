@@ -492,14 +492,17 @@ pub struct NewPayloadRequest {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", untagged)]
 pub struct GetPayloadResponse {
-    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]
+    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))] // V1, V2
     pub execution_payload: ExecutionPayloadV1,
     #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
     pub execution_payload: ExecutionPayloadV2,
     #[superstruct(only(V3, V4, V5), partial_getter(rename = "execution_payload_v3"))]
+    // V4 is set to use ExecutionPayloadV3 as of right now and just introduce another attribute to this struct
     pub execution_payload: ExecutionPayloadV3,
+    /*#[superstruct(only(V4), partial_getter(rename = "execution_payload_v4"))]
+    pub execution_payload: ExecutionPayloadV4,*/
     #[serde(with = "serde_utils::u256_hex_be")]
-    #[superstruct(getter(copy), only(V2, V3, V4, V5))]
+    #[superstruct(partial_getter(copy), only(V2, V3, V4, V5))]
     pub block_value: U256,
     #[superstruct(only(V3, V4, V5))]
     pub blobs_bundle: serde_json::Value,
@@ -616,8 +619,8 @@ impl ForkConfig {
         ForkConfig {
             shanghai_fork_epoch: 194048,
             cancun_fork_epoch: 269568,
-            prague_fork_epoch: 99999999999999,
-            osaka_fork_epoch: 99999999999999,
+            prague_fork_epoch: 364032,
+            osaka_fork_epoch: 411392,
         }
     }
 
@@ -625,8 +628,8 @@ impl ForkConfig {
         ForkConfig {
             shanghai_fork_epoch: 256,
             cancun_fork_epoch: 29696,
-            prague_fork_epoch: 99999999999999,
-            osaka_fork_epoch: 99999999999999,
+            prague_fork_epoch: 115968,
+            osaka_fork_epoch: 165120,
         }
     }
 }
